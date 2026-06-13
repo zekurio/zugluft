@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/zugluft-hw",
+    "crates/zugluft-ipc",
+    "crates/zugluft-service",
+    "crates/zugluft-cli",
+    "crates/zugluft-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+zugluft-hw = { path = "crates/zugluft-hw" }
+zugluft-ipc = { path = "crates/zugluft-ipc" }
+
+[profile.release]
+lto = "thin"

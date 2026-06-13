@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <!-- Wind glyph adapted from Lucide's wind icon: https://lucide.dev/icons/wind -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#14161b"/>
+  <g transform="translate(40 40) scale(7.3333333)" stroke="#4f9cf9" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12.8 19.6A2 2 0 1 0 14 16H2"/>
+    <path d="M17.5 8a2.5 2.5 0 1 1 2 4H2"/>
+    <path d="M9.8 4.4A2 2 0 1 1 11 8H2"/>
+  </g>
+</svg>

@@ -1,0 +1,12 @@
+[package]
+name = "zugluft-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "zugluftctl"
+path = "src/main.rs"
+
+[dependencies]
+zugluft-hw.workspace = true
+zugluft-ipc = { version = "0.1.0", path = "../zugluft-ipc" }

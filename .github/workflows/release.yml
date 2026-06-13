@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable SemVer to release, for example 0.5.0 or v0.5.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build Windows release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $Raw = "${{ inputs.version }}".Trim()
+          if ($Raw -notmatch '^v?\d+\.\d+\.\d+$') {
+              throw "Stable releases must use SemVer like 0.5.0 or v0.5.0"
+          }
+
+          $Version = $Raw.TrimStart("v")
+          $Tag = "v$Version"
+          git fetch --tags --force
+          if (git tag --list $Tag) {
+              throw "Tag $Tag already exists"
+          }
+
+          "version=$Version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=$Tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Package Windows binaries
+        id: package
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.package_name }}
+          path: |
+            ${{ steps.package.outputs.zip_path }}
+            ${{ steps.package.outputs.checksum_path }}
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Tag = "${{ steps.version.outputs.tag }}"
+          $Zip = "${{ steps.package.outputs.zip_path }}"
+          $Checksum = "${{ steps.package.outputs.checksum_path }}"
+          $Notes = "Windows x64 package for $Tag.`n`nUnzip to a stable folder, run zugluft-service.exe install from an elevated PowerShell, then start zugluft.exe normally. The service registration stores the executable path."
+
+          gh release create $Tag `
+            $Zip `
+            $Checksum `
+            --target "${{ github.sha }}" `
+            --title "zugluft $Tag" `
+            --notes $Notes `
+            --generate-notes

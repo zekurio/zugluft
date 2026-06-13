@@ -1,0 +1,8 @@
+[package]
+name = "zugluft-hw"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+thiserror = "2.0.18"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }

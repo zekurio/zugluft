@@ -1,0 +1,115 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build Windows nightly
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve nightly version
+        id: version
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+
+          $Stable = git tag --list |
+              Where-Object { $_ -match '^v?(\d+)\.(\d+)\.(\d+)$' } |
+              ForEach-Object {
+                  $Text = $_
+                  [pscustomobject]@{
+                      Tag = $Text
+                      Version = [version]($Text.TrimStart("v"))
+                  }
+              } |
+              Sort-Object Version -Descending |
+              Select-Object -First 1
+
+          if ($Stable) {
+              $Base = $Stable.Version
+              $BaseTag = $Stable.Tag
+          } else {
+              $CargoToml = Get-Content -LiteralPath Cargo.toml -Raw
+              if ($CargoToml -notmatch '(?m)^version\s*=\s*"(?<version>\d+\.\d+\.\d+)"') {
+                  throw "Could not find a stable workspace version in Cargo.toml"
+              }
+              $Base = [version]$Matches.version
+              $BaseTag = "Cargo.toml $($Matches.version)"
+          }
+
+          $NextPatch = $Base.Build + 1
+          $NextVersion = "$($Base.Major).$($Base.Minor).$NextPatch"
+          $Date = (Get-Date).ToUniversalTime().ToString("yyyyMMdd")
+          $Counter = $env:GITHUB_RUN_NUMBER
+          $Version = "$NextVersion-nightly.$Date.$Counter"
+          $Tag = "v$Version"
+          $ShortSha = "${{ github.sha }}".Substring(0, 12)
+
+          if (git tag --list $Tag) {
+              throw "Nightly tag $Tag already exists"
+          }
+
+          "version=$Version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=$Tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "base_tag=$BaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "short_sha=$ShortSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Package Windows binaries
+        id: package
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.package_name }}
+          retention-days: 14
+          path: |
+            ${{ steps.package.outputs.zip_path }}
+            ${{ steps.package.outputs.checksum_path }}
+
+      - name: Publish nightly prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Tag = "${{ steps.version.outputs.tag }}"
+          $Version = "${{ steps.version.outputs.version }}"
+          $BaseTag = "${{ steps.version.outputs.base_tag }}"
+          $ShortSha = "${{ steps.version.outputs.short_sha }}"
+          $Zip = "${{ steps.package.outputs.zip_path }}"
+          $Checksum = "${{ steps.package.outputs.checksum_path }}"
+          $Notes = "Nightly Windows x64 package for $ShortSha.`n`nVersion: $Version`nBase stable version: $BaseTag`n`nNightly versions use the next patch after the latest stable tag, then nightly.YYYYMMDD.GitHubRunNumber."
+
+          gh release create $Tag `
+            $Zip `
+            $Checksum `
+            --target "${{ github.sha }}" `
+            --title "zugluft Nightly $Version ($ShortSha)" `
+            --notes $Notes `
+            --generate-notes `
+            --prerelease `
+            --latest=false
