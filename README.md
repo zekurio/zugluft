@@ -4,7 +4,7 @@ zugluft is a native Rust fan-control tool for Windows. A privileged Windows
 service owns hardware access, while the unelevated desktop app and CLI talk to
 it over named pipes.
 
-Version: `0.1.0`
+> zugluft (German): an unwanted draft or current of air, especially indoors.
 
 ## What Works
 
