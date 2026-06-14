@@ -318,6 +318,7 @@ impl Zugluft {
         cx: &mut Context<Self>,
     ) -> Div {
         let color = SENSOR_COLORS[index % SENSOR_COLORS.len()];
+        let pin_item = self.dashboard_curve_item(def);
         let select_id = def.id.clone();
         let edit_id = def.id.clone();
         let delete_id = def.id.clone();
@@ -365,6 +366,7 @@ impl Zugluft {
                                 .child(live_text),
                         ),
                 )
+                .child(self.dashboard_pin_button(("curve-list-pin", index), pin_item, cx))
                 .child(
                     div()
                         .id(("curve-list-edit", index))
@@ -604,6 +606,7 @@ impl Zugluft {
         };
         let chip_name = chip.name.clone();
         let label = name.clone();
+        let pin_item = self.dashboard_fan_item(&chip.name, key.1);
 
         div().child(
             div()
@@ -649,6 +652,11 @@ impl Zugluft {
                         .truncate()
                         .child(duty),
                 )
+                .child(self.dashboard_pin_button(
+                    ("fan-list-pin", key.0 * 64 + key.1),
+                    pin_item,
+                    cx,
+                ))
                 .child(
                     div()
                         .id(("fan-list-rename", key.0 * 64 + key.1))

@@ -9,6 +9,10 @@ pub const FONT_SANS: &str = "IBM Plex Sans";
 pub const FONT_MONO: &str = "IBM Plex Mono";
 
 const ICONS: &[(&str, &[u8])] = &[
+    (
+        "icons/dashboard.svg",
+        include_bytes!("../assets/icons/dashboard.svg"),
+    ),
     ("icons/fan.svg", include_bytes!("../assets/icons/fan.svg")),
     (
         "icons/spline.svg",
@@ -22,6 +26,7 @@ const ICONS: &[(&str, &[u8])] = &[
         "icons/pencil.svg",
         include_bytes!("../assets/icons/pencil.svg"),
     ),
+    ("icons/pin.svg", include_bytes!("../assets/icons/pin.svg")),
     (
         "icons/trash.svg",
         include_bytes!("../assets/icons/trash.svg"),

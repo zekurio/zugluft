@@ -13,6 +13,7 @@ impl Zugluft {
         // Config keys for this line's persisted visibility / appearance.
         let channel = channel_key(key);
         let default = default_shown(key.kind);
+        let pin_item = self.dashboard_sensor_item(sensor);
         div().child(
             div()
                 .id(("sensor-toggle", sensor_id(key)))
@@ -70,6 +71,7 @@ impl Zugluft {
                         .text_color(rgb(if sensor.enabled { TEXT } else { TEXT_DIM }))
                         .child(sensor.label.clone()),
                 )
+                .child(self.dashboard_pin_button(("sensor-pin", sensor_id(key)), pin_item, cx))
                 .child(
                     div()
                         .id(("sensor-rename", sensor_id(key)))
@@ -442,18 +444,18 @@ impl Zugluft {
 
     pub(super) fn render_ready(
         &self,
-        chips: Vec<ChipInfo>,
-        snapshots: Vec<ChipSnapshot>,
-        notes: Vec<String>,
-        customs: Vec<CustomSensorValue>,
+        chips: &[ChipInfo],
+        snapshots: &[ChipSnapshot],
+        notes: &[String],
+        customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
         let page = match self.active_view {
-            AppView::Dashboard => self.render_controls(&chips, &snapshots, &notes, &customs, cx),
-            AppView::Curves => self.render_curves_page(&chips, &snapshots, &customs, cx),
-            AppView::Fans => self.render_fans_page(&chips, &snapshots, cx),
-            AppView::Telemetry => self.render_sensors(&chips, &snapshots, &customs, cx),
-            AppView::Settings => self.render_settings(&chips, &snapshots, cx),
+            AppView::Dashboard => self.render_controls(chips, snapshots, notes, customs, cx),
+            AppView::Curves => self.render_curves_page(chips, snapshots, customs, cx),
+            AppView::Fans => self.render_fans_page(chips, snapshots, cx),
+            AppView::Telemetry => self.render_sensors(chips, snapshots, customs, cx),
+            AppView::Settings => self.render_settings(chips, snapshots, cx),
         };
 
         div()

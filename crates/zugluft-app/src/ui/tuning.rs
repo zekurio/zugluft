@@ -48,7 +48,15 @@ impl Zugluft {
             .bg(rgb(BG))
             .border_1()
             .border_color(rgb(BORDER))
-            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child(cal_note))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(div().text_xs().text_color(rgb(TEXT_DIM)).child(cal_note))
+                    .child(self.tuning_help_button(key)),
+            )
             .child(
                 div()
                     .flex()
@@ -195,89 +203,73 @@ impl Zugluft {
             .child(value_box)
     }
 
-    /// One chip: a wrapping grid of fan cards (live temperatures have their
-    /// own tab; curves their own section below).
-    pub(super) fn render_chip(
-        &self,
-        ci: usize,
-        info: &ChipInfo,
-        snapshot: Option<&ChipSnapshot>,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let mut cards = Vec::new();
-        if let Some(snapshot) = snapshot {
-            for (fi, fan) in snapshot.fans.iter().enumerate() {
-                // Headers that are disabled and have no control are noise.
-                if fan.rpm.is_none() && fan.duty.is_none() {
-                    continue;
-                }
-                if self.names.is_hidden(&info.name, &format!("fan{}", fi + 1)) {
-                    continue;
-                }
-                let name = self.names.fan_label(&info.name, fi);
-                cards.push(self.render_fan_card((ci, fi), &info.name, name, fan, cx));
-            }
-        }
-
-        // Sensor-only devices (CPU, fanless GPUs) live on the Sensors page;
-        // a fan section with nothing in it is noise here.
-        if cards.is_empty() {
-            return None;
-        }
-
-        let device_label = self.names.device_label(&info.name);
-        let raw_chip = info.name.clone();
-        let group: SharedString = format!("fan-chip-{ci}").into();
-        Some(
+    fn tuning_help_button(&self, key: FanKey) -> Div {
+        div().child(
             div()
+                .id(("tuning-help", key.0 * 64 + key.1))
+                .w(px(16.))
+                .h(px(16.))
                 .flex()
-                .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .group(group.clone())
-                        .flex()
-                        .items_center()
-                        .gap_1p5()
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(TEXT_DIM))
-                                .child(device_label.clone()),
-                        )
-                        .child(
-                            div()
-                                .id(("chip-rename", ci))
-                                .flex_none()
-                                .cursor_pointer()
-                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    cx.stop_propagation();
-                                    this.begin_device_rename(
-                                        raw_chip.clone(),
-                                        device_label.clone(),
-                                        window,
-                                        cx,
-                                    );
-                                }))
-                                .child(
-                                    svg()
-                                        .path("icons/pencil.svg")
-                                        .w(px(12.))
-                                        .h(px(12.))
-                                        .text_color(gpui::transparent_black())
-                                        .group_hover(group, |s| s.text_color(rgb(TEXT_DIM)))
-                                        .hover(|s| s.text_color(rgb(TEXT))),
-                                ),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_start()
-                        .gap_2()
-                        .children(cards),
-                ),
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(rgb(TRACK))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(rgb(TEXT_DIM))
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(FILL_HOVER)).text_color(rgb(TEXT)))
+                .tooltip(|_, cx| cx.new(|_| TuningHelpTooltip).into())
+                .child("?"),
         )
+    }
+}
+
+struct TuningHelpTooltip;
+
+impl TuningHelpTooltip {
+    fn row(label: &'static str, body: &'static str) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(rgb(TEXT))
+                    .child(label),
+            )
+            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child(body))
+    }
+}
+
+impl Render for TuningHelpTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w(px(300.))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .rounded_lg()
+            .bg(rgb(PANEL))
+            .border_1()
+            .border_color(rgb(BORDER))
+            .shadow(floating_shadow())
+            .child(Self::row(
+                "Step up / down",
+                "Limits how quickly the fan target may rise or fall. Instant applies changes immediately.",
+            ))
+            .child(Self::row(
+                "Start / stop",
+                "Overrides the measured duty where the fan starts spinning or can safely stop.",
+            ))
+            .child(Self::row(
+                "Offset / minimum",
+                "Offset shifts the curve target. Minimum keeps the fan at or above a fixed duty.",
+            ))
     }
 }

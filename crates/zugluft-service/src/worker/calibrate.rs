@@ -8,16 +8,22 @@ pub(super) const CALIBRATION_DUTIES: [u8; 9] = [255, 204, 153, 102, 51, 38, 26, 
 /// Ascending probe for the restart duty of fans that stalled; capped at
 /// 40 % — a fan that needs more than that to start is treated as unknown.
 pub(super) const CALIBRATION_START_DUTIES: [u8; 8] = [13, 26, 38, 51, 64, 77, 89, 102];
-/// Spin-up/down time before sampling a calibration step.
-pub(super) const CALIBRATION_SETTLE: Duration = Duration::from_secs(8);
+/// Spin-up/down time before sampling a normal calibration step.
+pub(super) const CALIBRATION_SETTLE: Duration = Duration::from_secs(15);
+/// Longer wait for low-duty and restart probes, where fan inertia and tach
+/// smoothing most often produce misleading transient readings.
+pub(super) const CALIBRATION_LOW_DUTY_SETTLE: Duration = Duration::from_secs(25);
+/// Longest wait for the full stop test.
+pub(super) const CALIBRATION_STOP_SETTLE: Duration = Duration::from_secs(30);
 /// Upper bound of samples per step if readings never stabilize.
-pub(super) const CALIBRATION_MAX_SAMPLES: usize = 24;
-/// Consecutive readings within this fraction (or 30 rpm) required per fan.
-pub(super) const CALIBRATION_STABLE_READINGS: u8 = 3;
+pub(super) const CALIBRATION_MAX_SAMPLES: usize = 72;
+/// Consecutive readings within this fraction (or 20 rpm) required per fan.
+pub(super) const CALIBRATION_STABLE_READINGS: u8 = 8;
 /// Recent stable readings averaged into the stored RPM for each step.
-pub(super) const CALIBRATION_AVERAGE_READINGS: usize = 5;
-/// Readings within this fraction (or 30 rpm) count as stable.
-pub(super) const CALIBRATION_STABLE_DELTA: f32 = 0.02;
+pub(super) const CALIBRATION_AVERAGE_READINGS: usize = 8;
+/// Readings within this fraction (or 20 rpm) count as stable.
+pub(super) const CALIBRATION_STABLE_DELTA: f32 = 0.01;
+pub(super) const CALIBRATION_STABLE_RPM_DELTA: f32 = 20.0;
 /// Steps at or below this duty watch the temperature guard.
 pub(super) const CALIBRATION_GUARD_DUTY: u8 = 51;
 /// Any sensor reaching this during a guarded step aborts the low-duty
@@ -278,7 +284,7 @@ pub(super) fn calibration_step(
 
     let expected = duty_to_percent(duty);
     let mut max_temp = 0.0f32;
-    let settle_deadline = Instant::now() + CALIBRATION_SETTLE;
+    let settle_deadline = Instant::now() + calibration_settle_for(duty);
     loop {
         let wait = settle_deadline.saturating_duration_since(Instant::now());
         if wait.is_zero() {
@@ -332,7 +338,8 @@ pub(super) fn calibration_step(
             let count = match last.get(&key) {
                 Some(&prev)
                     if (rpm - prev).abs()
-                        <= (prev.max(rpm) * CALIBRATION_STABLE_DELTA).max(30.0) =>
+                        <= (prev.max(rpm) * CALIBRATION_STABLE_DELTA)
+                            .max(CALIBRATION_STABLE_RPM_DELTA) =>
                 {
                     stable_counts
                         .get(&(ci, fi))
@@ -380,6 +387,16 @@ pub(super) fn calibration_step(
         conflict_samples,
         never_stabilized,
     })
+}
+
+fn calibration_settle_for(duty: u8) -> Duration {
+    if duty == 0 {
+        CALIBRATION_STOP_SETTLE
+    } else if duty <= CALIBRATION_GUARD_DUTY {
+        CALIBRATION_LOW_DUTY_SETTLE
+    } else {
+        CALIBRATION_SETTLE
+    }
 }
 
 fn record_max_temp(snaps: &[zugluft_hw::ChipSnapshot], max_temp: &mut f32) {

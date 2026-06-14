@@ -9,6 +9,8 @@ impl Zugluft {
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
+        let cards = self.render_dashboard_cards(chips, snapshots, customs, cx);
+
         // The page scrolls; without this an overflowing page squeezes the
         // shrinkable parts of the layout instead (and curves + tuning make
         // it overflow easily in short windows).
@@ -28,21 +30,30 @@ impl Zugluft {
                 .border_color(rgb(BORDER))
                 .shadow(floating_shadow())
                 .child(
-                    div().flex().flex_col().child(
+                    div().flex().items_center().gap_2().child(
                         div()
                             .text_base()
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Fans"),
+                            .child("Dashboard"),
                     ),
                 )
-                .children(
-                    chips
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(ci, info)| self.render_chip(ci, info, snapshots.get(ci), cx)),
-                )
-                .child(self.render_curve_section(chips, snapshots, customs, cx))
-                .child(self.render_dashboard_sensor_section(chips, snapshots, customs, cx))
+                .child(if cards.is_empty() {
+                    div()
+                        .min_h(px(180.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_sm()
+                        .text_color(rgb(TEXT_DIM))
+                        .child("No pinned items")
+                } else {
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_start()
+                        .gap_2()
+                        .children(cards)
+                })
                 .child(self.render_curve_fab(cx))
                 .children((!notes.is_empty()).then(|| {
                     div()
@@ -243,111 +254,11 @@ impl Zugluft {
         )
     }
 
-    /// The Curves row on the Controls page: one card per curve, plus the
-    /// add button.
-    pub(super) fn render_curve_section(
+    pub(super) fn render_dashboard_sensor_card(
         &self,
-        chips: &[ChipInfo],
-        snapshots: &[ChipSnapshot],
-        customs: &[CustomSensorValue],
+        sensor: &SensorReading,
         cx: &mut Context<Self>,
     ) -> Div {
-        let defs = self.names.curves().to_vec();
-        let cards: Vec<Div> = defs
-            .iter()
-            .enumerate()
-            .map(|(i, def)| self.render_curve_card(i, def, chips, snapshots, customs, cx))
-            .collect();
-
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .pt_3()
-            .border_t_1()
-            .border_color(rgb(BORDER))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("Curves"),
-                    )
-                    .child(div().flex_1()),
-            )
-            .child(if cards.is_empty() {
-                div().text_xs().text_color(rgb(TEXT_DIM)).child(
-                    "No curves yet — a curve maps a temperature source to fan duties. \
-                     Add one, then switch fans to “curve”.",
-                )
-            } else {
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_start()
-                    .gap_2()
-                    .children(cards)
-            })
-    }
-
-    pub(super) fn render_dashboard_sensor_section(
-        &self,
-        chips: &[ChipInfo],
-        snapshots: &[ChipSnapshot],
-        customs: &[CustomSensorValue],
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let sensors = self
-            .sensor_readings(chips, snapshots, customs)
-            .into_iter()
-            .filter(|sensor| {
-                matches!(
-                    sensor.key.kind,
-                    SensorKind::Temperature | SensorKind::Power | SensorKind::Custom
-                )
-            })
-            .take(8)
-            .collect::<Vec<_>>();
-
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .pt_3()
-            .border_t_1()
-            .border_color(rgb(BORDER))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("Sensors"),
-                    )
-                    .child(div().flex_1()),
-            )
-            .child(if sensors.is_empty() {
-                div()
-                    .text_xs()
-                    .text_color(rgb(TEXT_DIM))
-                    .child("No telemetry sensors")
-            } else {
-                div().flex().flex_wrap().items_start().gap_2().children(
-                    sensors
-                        .iter()
-                        .map(|sensor| self.render_dashboard_sensor_card(sensor, cx)),
-                )
-            })
-    }
-
-    fn render_dashboard_sensor_card(&self, sensor: &SensorReading, cx: &mut Context<Self>) -> Div {
         let key = sensor.key;
         let channel = channel_key(key);
         let label = sensor.label.clone();
@@ -356,6 +267,7 @@ impl Zugluft {
             SensorKind::Custom => "Custom".to_string(),
             _ => self.names.device_label(&sensor.chip_name),
         };
+        let pin_item = self.dashboard_sensor_item(sensor);
 
         div()
             .w(px(188.))
@@ -389,6 +301,11 @@ impl Zugluft {
                             .truncate()
                             .child(label.clone()),
                     )
+                    .child(self.dashboard_pin_button(
+                        ("dashboard-sensor-pin", sensor_id(key)),
+                        pin_item,
+                        cx,
+                    ))
                     .child(
                         div()
                             .id(("dashboard-sensor-rename", sensor_id(key)))
@@ -442,11 +359,11 @@ impl Zugluft {
                     .absolute()
                     .right(px(0.))
                     .bottom(px(62.))
-                    .w(px(230.))
+                    .w(px(158.))
                     .flex()
                     .flex_col()
-                    .gap_1()
-                    .p_2()
+                    .gap_0p5()
+                    .p_1()
                     .rounded_lg()
                     .bg(rgb(BG))
                     .border_1()
@@ -470,9 +387,9 @@ impl Zugluft {
                             .id("quick-create-curve")
                             .flex()
                             .items_center()
-                            .gap_2()
-                            .px_2()
-                            .py_1p5()
+                            .gap_1p5()
+                            .px_1p5()
+                            .py_1()
                             .rounded_md()
                             .cursor_pointer()
                             .hover(|s| s.bg(rgb(FILL_HOVER)))
@@ -486,27 +403,17 @@ impl Zugluft {
                                 );
                             }))
                             .child(
-                                div()
-                                    .w(px(8.))
-                                    .h(px(8.))
-                                    .rounded_full()
-                                    .bg(rgb(FILL_MANUAL)),
+                                svg()
+                                    .path("icons/spline.svg")
+                                    .w(px(14.))
+                                    .h(px(14.))
+                                    .text_color(rgb(FILL_MANUAL)),
                             )
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w(px(0.))
-                                    .flex()
-                                    .flex_col()
-                                    .gap_0p5()
-                                    .child(div().text_sm().truncate().child("New curve"))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(rgb(TEXT_DIM))
-                                            .truncate()
-                                            .child("Map a temperature source to fan speed"),
-                                    ),
+                                    .child(div().text_sm().truncate().child("New curve")),
                             ),
                     )
                     .child(
@@ -514,9 +421,9 @@ impl Zugluft {
                             .id("quick-create-sensor")
                             .flex()
                             .items_center()
-                            .gap_2()
-                            .px_2()
-                            .py_1p5()
+                            .gap_1p5()
+                            .px_1p5()
+                            .py_1()
                             .rounded_md()
                             .cursor_pointer()
                             .hover(|s| s.bg(rgb(FILL_HOVER)))
@@ -524,22 +431,18 @@ impl Zugluft {
                                 this.open_dropdown = None;
                                 this.add_custom(cx);
                             }))
-                            .child(div().w(px(8.)).h(px(8.)).rounded_full().bg(rgb(0x8bd17c)))
+                            .child(
+                                svg()
+                                    .path("icons/thermometer.svg")
+                                    .w(px(14.))
+                                    .h(px(14.))
+                                    .text_color(rgb(0x8bd17c)),
+                            )
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w(px(0.))
-                                    .flex()
-                                    .flex_col()
-                                    .gap_0p5()
-                                    .child(div().text_sm().truncate().child("Sensor"))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(rgb(TEXT_DIM))
-                                            .truncate()
-                                            .child("Combine existing readings"),
-                                    ),
+                                    .child(div().text_sm().truncate().child("Sensor")),
                             ),
                     ),
             )

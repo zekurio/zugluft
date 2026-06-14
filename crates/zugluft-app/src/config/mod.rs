@@ -118,10 +118,113 @@ struct UnitsConfig {
     fan: Option<FanUnit>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DashboardItemKind {
+    Fan,
+    Sensor,
+    Curve,
+}
+
+impl DashboardItemKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Fan => "fan",
+            Self::Sensor => "sensor",
+            Self::Curve => "curve",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DashboardItem {
+    kind: DashboardItemKind,
+    #[serde(default)]
+    chip: Option<String>,
+    #[serde(default)]
+    channel: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+}
+
+impl DashboardItem {
+    pub fn fan(chip: impl Into<String>, channel: impl Into<String>) -> Self {
+        Self {
+            kind: DashboardItemKind::Fan,
+            chip: Some(chip.into()),
+            channel: Some(channel.into()),
+            id: None,
+        }
+    }
+
+    pub fn sensor(chip: impl Into<String>, channel: impl Into<String>) -> Self {
+        Self {
+            kind: DashboardItemKind::Sensor,
+            chip: Some(chip.into()),
+            channel: Some(channel.into()),
+            id: None,
+        }
+    }
+
+    pub fn curve(id: impl Into<String>) -> Self {
+        Self {
+            kind: DashboardItemKind::Curve,
+            chip: None,
+            channel: None,
+            id: Some(id.into()),
+        }
+    }
+
+    pub fn kind(&self) -> DashboardItemKind {
+        self.kind
+    }
+
+    pub fn chip(&self) -> Option<&str> {
+        self.chip.as_deref()
+    }
+
+    pub fn channel(&self) -> Option<&str> {
+        self.channel.as_deref()
+    }
+
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    fn is_valid(&self) -> bool {
+        let has_text =
+            |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
+        match self.kind {
+            DashboardItemKind::Fan | DashboardItemKind::Sensor => {
+                has_text(&self.chip) && has_text(&self.channel)
+            }
+            DashboardItemKind::Curve => has_text(&self.id),
+        }
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && match self.kind {
+                DashboardItemKind::Fan | DashboardItemKind::Sensor => {
+                    self.chip() == other.chip() && self.channel() == other.channel()
+                }
+                DashboardItemKind::Curve => self.id() == other.id(),
+            }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DashboardConfig {
+    #[serde(default)]
+    item: Vec<DashboardItem>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct NamesConfig {
     #[serde(default)]
     units: UnitsConfig,
+    #[serde(default)]
+    dashboard: DashboardConfig,
     #[serde(default)]
     chips: HashMap<String, HashMap<String, String>>,
     #[serde(default)]
@@ -192,6 +295,18 @@ impl NamesConfig {
     /// Fan curve definitions, ids and names filled in.
     pub fn curves(&self) -> &[CurveDef] {
         &self.curve
+    }
+
+    /// Dashboard pins, in display order.
+    pub fn dashboard_items(&self) -> &[DashboardItem] {
+        &self.dashboard.item
+    }
+
+    pub fn is_dashboard_pinned(&self, item: &DashboardItem) -> bool {
+        self.dashboard
+            .item
+            .iter()
+            .any(|pinned| pinned.matches(item))
     }
 
     fn has_hidden_key(&self, chip: &str, key: &str) -> bool {
@@ -295,5 +410,20 @@ pub fn load() -> NamesConfig {
         curve.normalize_window();
         curve.normalize_kind();
     }
+    let mut dashboard_items = Vec::new();
+    for item in config
+        .dashboard
+        .item
+        .drain(..)
+        .filter(DashboardItem::is_valid)
+    {
+        if !dashboard_items
+            .iter()
+            .any(|existing: &DashboardItem| existing.matches(&item))
+        {
+            dashboard_items.push(item);
+        }
+    }
+    config.dashboard.item = dashboard_items;
     config
 }

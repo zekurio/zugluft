@@ -329,7 +329,7 @@ impl Zugluft {
         self.render_message("zugluft service not running", lines, action)
     }
 
-    pub(super) fn render_failed(&self, error: String, cx: &mut Context<Self>) -> Div {
+    pub(super) fn render_failed(&self, error: &str, cx: &mut Context<Self>) -> Div {
         let action = self.button("redetect", "Retry detection", cx, |this, cx| {
             let _ = this.tx.send(Request::Redetect);
             cx.notify();
@@ -337,7 +337,7 @@ impl Zugluft {
         self.render_message(
             "Hardware unavailable",
             vec![
-                error,
+                error.to_string(),
                 "The service retries automatically every 30 s.".to_string(),
             ],
             Some(action),

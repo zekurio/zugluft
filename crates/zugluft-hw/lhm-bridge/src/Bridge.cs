@@ -73,17 +73,18 @@ public static class Bridge
     {
         try
         {
+            bool fullScan = FullHardwareScanEnabled();
             Computer computer = new()
             {
-                IsBatteryEnabled = true,
+                IsBatteryEnabled = fullScan,
                 IsControllerEnabled = true,
                 IsCpuEnabled = true,
                 IsGpuEnabled = true,
-                IsMemoryEnabled = true,
+                IsMemoryEnabled = fullScan,
                 IsMotherboardEnabled = true,
                 IsNetworkEnabled = false,
-                IsPsuEnabled = true,
-                IsStorageEnabled = true,
+                IsPsuEnabled = fullScan,
+                IsStorageEnabled = fullScan,
             };
             computer.Open();
             return ComputerResult.Success(computer);
@@ -92,6 +93,15 @@ public static class Bridge
         {
             return ComputerResult.Failure(error);
         }
+    }
+
+    private static bool FullHardwareScanEnabled()
+    {
+        string? value = Environment.GetEnvironmentVariable("ZUGLUFT_LHM_FULL_SCAN");
+        return value is not null
+            && (value.Equals("1", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("yes", StringComparison.OrdinalIgnoreCase));
     }
 
     [UnmanagedCallersOnly(EntryPoint = "update_computer", CallConvs = new[] { typeof(CallConvCdecl) })]

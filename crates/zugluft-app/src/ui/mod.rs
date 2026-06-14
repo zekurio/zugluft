@@ -38,6 +38,7 @@ mod curve_panel;
 mod curve_ui;
 mod curves;
 mod custom_ui;
+mod dashboard;
 mod editing;
 mod fan_card;
 mod fans;
@@ -359,11 +360,8 @@ impl Zugluft {
         .detach();
     }
 
-    fn render_body_and_modals(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> (Div, Option<Div>, Option<Div>) {
-        match self.state.clone() {
+    fn render_body_and_modals(&self, cx: &mut Context<Self>) -> (Div, Option<Div>, Option<Div>) {
+        match &self.state {
             UiState::Connecting => (
                 self.render_message("Connecting to service...", vec![], None),
                 None,
@@ -382,7 +380,7 @@ impl Zugluft {
                 self.render_message(
                     "Calibrating fans...",
                     vec![
-                        message,
+                        message.clone(),
                         "Fans step from full speed down to a stop test; previous duties are \
                          restored afterwards."
                             .to_string(),
@@ -403,17 +401,17 @@ impl Zugluft {
             }) => {
                 let dialog = self
                     .curve_dialog
-                    .clone()
-                    .and_then(|id| self.render_curve_dialog(&id, &chips, &snapshots, &customs, cx))
+                    .as_deref()
+                    .and_then(|id| self.render_curve_dialog(id, chips, snapshots, customs, cx))
                     .or_else(|| {
-                        self.custom_dialog.clone().and_then(|id| {
-                            self.render_custom_dialog(&id, &chips, &snapshots, &customs, cx)
+                        self.custom_dialog.as_deref().and_then(|id| {
+                            self.render_custom_dialog(id, chips, snapshots, customs, cx)
                         })
                     });
                 let confirm = self
                     .confirm_delete
-                    .clone()
-                    .and_then(|id| self.render_confirm_delete(&id, cx));
+                    .as_ref()
+                    .and_then(|id| self.render_confirm_delete(id, cx));
                 (
                     self.render_ready(chips, snapshots, notes, customs, cx),
                     dialog,

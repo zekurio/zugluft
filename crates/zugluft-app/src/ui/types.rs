@@ -177,7 +177,7 @@ impl AppView {
 
     pub(super) fn icon(self) -> &'static str {
         match self {
-            Self::Dashboard => "icons/wind.svg",
+            Self::Dashboard => "icons/dashboard.svg",
             Self::Curves => "icons/spline.svg",
             Self::Fans => "icons/fan.svg",
             Self::Telemetry => "icons/thermometer.svg",

@@ -253,6 +253,101 @@ pub fn delete_curve(id: &str) {
     });
 }
 
+/// Adds or removes one dashboard pin while preserving the other pins'
+/// order. Pinning appends to the end, so a later drag/reorder feature can
+/// use the same `[[dashboard.item]]` order directly.
+pub fn set_dashboard_pinned(item: &DashboardItem, pinned: bool) {
+    edit_config(|doc| {
+        if let Some(entries) = doc
+            .get_mut("dashboard")
+            .and_then(|dashboard| dashboard.get_mut("item"))
+            .and_then(|item| item.as_array_of_tables_mut())
+        {
+            let mut index = 0;
+            while index < entries.len() {
+                if dashboard_table_matches(entries.get(index), item) {
+                    entries.remove(index);
+                } else {
+                    index += 1;
+                }
+            }
+        }
+
+        if pinned {
+            let entries = doc["dashboard"]["item"]
+                .or_insert(toml_edit::Item::ArrayOfTables(
+                    toml_edit::ArrayOfTables::new(),
+                ))
+                .as_array_of_tables_mut();
+            if let Some(entries) = entries {
+                entries.push(dashboard_table(item));
+            }
+        }
+
+        prune_empty_dashboard(doc);
+    });
+}
+
+fn dashboard_table(item: &DashboardItem) -> toml_edit::Table {
+    let mut table = toml_edit::Table::new();
+    table["kind"] = toml_edit::value(item.kind.as_str());
+    match item.kind {
+        DashboardItemKind::Fan | DashboardItemKind::Sensor => {
+            if let Some(chip) = item.chip() {
+                table["chip"] = toml_edit::value(chip);
+            }
+            if let Some(channel) = item.channel() {
+                table["channel"] = toml_edit::value(channel);
+            }
+        }
+        DashboardItemKind::Curve => {
+            if let Some(id) = item.id() {
+                table["id"] = toml_edit::value(id);
+            }
+        }
+    }
+    table
+}
+
+fn dashboard_table_matches(entry: Option<&toml_edit::Table>, item: &DashboardItem) -> bool {
+    let Some(entry) = entry else {
+        return false;
+    };
+    if entry.get("kind").and_then(|kind| kind.as_str()) != Some(item.kind.as_str()) {
+        return false;
+    }
+    match item.kind {
+        DashboardItemKind::Fan | DashboardItemKind::Sensor => {
+            entry.get("chip").and_then(|chip| chip.as_str()) == item.chip()
+                && entry.get("channel").and_then(|channel| channel.as_str()) == item.channel()
+        }
+        DashboardItemKind::Curve => entry.get("id").and_then(|id| id.as_str()) == item.id(),
+    }
+}
+
+fn prune_empty_dashboard(doc: &mut toml_edit::DocumentMut) {
+    let item_empty = doc
+        .get("dashboard")
+        .and_then(|dashboard| dashboard.get("item"))
+        .and_then(|item| item.as_array_of_tables())
+        .is_some_and(|items| items.is_empty());
+    if item_empty
+        && let Some(dashboard) = doc
+            .get_mut("dashboard")
+            .and_then(|dashboard| dashboard.as_table_like_mut())
+    {
+        dashboard.remove("item");
+    }
+
+    let dashboard_empty = doc
+        .get("dashboard")
+        .and_then(|dashboard| dashboard.as_table_like())
+        .is_some_and(|dashboard| dashboard.is_empty());
+    if dashboard_empty {
+        doc.as_table_mut().remove("dashboard");
+    }
+}
+
 /// Hides or shows a full chip/device by editing the `[hidden]` table.
 pub fn set_device_hidden(chip: &str, hidden: bool) {
     set_hidden(chip, HIDDEN_DEVICE_KEY, hidden);

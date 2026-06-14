@@ -48,6 +48,7 @@ impl Zugluft {
             };
             let group: SharedString = format!("fan-card-{fan_id}").into();
             let label = name.clone();
+            let pin_item = self.dashboard_fan_item(chip_name, key.1);
             div()
                 .group(group.clone())
                 .flex()
@@ -60,6 +61,7 @@ impl Zugluft {
                         .truncate()
                         .child(name.clone()),
                 )
+                .child(self.dashboard_pin_button(("fan-pin", fan_id), pin_item, cx))
                 .child(
                     div()
                         .id(("fan-rename", fan_id))

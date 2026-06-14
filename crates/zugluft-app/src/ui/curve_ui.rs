@@ -25,6 +25,7 @@ impl Zugluft {
             .bg(rgb(color));
         let header: Div = {
             let group: SharedString = format!("curve-card-{index}").into();
+            let pin_item = self.dashboard_curve_item(def);
             let edit_id = def.id.clone();
             let delete_id = def.id.clone();
             div()
@@ -60,6 +61,7 @@ impl Zugluft {
                         ),
                 )
                 .child(div().flex_1())
+                .child(self.dashboard_pin_button(("curve-pin", index), pin_item, cx))
                 .child(
                     div()
                         .id(("curve-delete", index))
