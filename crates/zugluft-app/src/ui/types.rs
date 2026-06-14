@@ -27,6 +27,7 @@ pub(super) const SENSOR_COLORS: [u32; 10] = [
 pub(super) const CURVE_HIT_RADIUS: f32 = 10.0;
 
 pub(super) type FanKey = (usize, usize); // (chip index, fan index)
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum SensorKind {
     Temperature,
@@ -155,9 +156,10 @@ pub(super) fn default_shown(kind: SensorKind) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AppView {
-    /// Fans, curves and everything that drives them.
-    Controls,
-    Sensors,
+    Dashboard,
+    Curves,
+    Fans,
+    Telemetry,
     /// Units and channel visibility.
     Settings,
 }
@@ -165,24 +167,30 @@ pub(super) enum AppView {
 impl AppView {
     pub(super) fn id(self) -> usize {
         match self {
-            Self::Controls => 0,
-            Self::Sensors => 1,
-            Self::Settings => 2,
+            Self::Dashboard => 0,
+            Self::Curves => 1,
+            Self::Fans => 2,
+            Self::Telemetry => 3,
+            Self::Settings => 4,
         }
     }
 
     pub(super) fn icon(self) -> &'static str {
         match self {
-            Self::Controls => "icons/fan.svg",
-            Self::Sensors => "icons/thermometer.svg",
+            Self::Dashboard => "icons/wind.svg",
+            Self::Curves => "icons/spline.svg",
+            Self::Fans => "icons/fan.svg",
+            Self::Telemetry => "icons/thermometer.svg",
             Self::Settings => "icons/settings.svg",
         }
     }
 
     pub(super) fn label(self) -> &'static str {
         match self {
-            Self::Controls => "Controls",
-            Self::Sensors => "Sensors",
+            Self::Dashboard => "Dashboard",
+            Self::Curves => "Curves",
+            Self::Fans => "Fans",
+            Self::Telemetry => "Telemetry",
             Self::Settings => "Settings",
         }
     }
@@ -195,6 +203,8 @@ pub(super) enum Dropdown {
     CurveSource { curve: String },
     /// Curve picker on a fan card (shown in place of the target slider).
     FanCurve { fan: FanKey },
+    /// Floating creation menu on the Dashboard page.
+    CurveQuickOpen,
     /// "Add input" picker in the custom-sensor editor, by sensor id.
     CustomInput { custom: String },
 }
@@ -233,9 +243,13 @@ pub(super) struct SensorReading {
     pub(super) fan_max_rpm: f32,
 }
 
-/// One sensor-panel section: a chip's display name plus its sensors,
-/// sub-grouped by kind label ("Temperatures", "Fans", "Power").
-pub(super) type PanelSection<'a> = (String, Vec<(&'static str, Vec<&'a SensorReading>)>);
+/// One sensor-panel section: a display label plus its sensors. Hardware
+/// sections keep the raw chip id so the header can rename the device.
+pub(super) type PanelSection<'a> = (
+    String,
+    Option<String>,
+    Vec<(&'static str, Vec<&'a SensorReading>)>,
+);
 
 #[derive(Clone)]
 pub(super) struct GraphSeries {
@@ -284,6 +298,7 @@ pub(super) struct Rename {
     pub(super) input: TextEdit,
     /// Chip name (or custom id) and `tempN`/`fanN`/`powerN`/`custom`.
     pub(super) appearance: Option<(String, String)>,
+    pub(super) device: Option<String>,
 }
 
 /// A tiny single-line text editor state. GPUI 0.2.2 exposes lower-level
@@ -561,7 +576,6 @@ pub(super) enum CurveKindField {
     TriggerThreshold,
     TriggerBefore,
     TriggerAfter,
-    TriggerRamp,
     LinearStartTemp,
     LinearStartDuty,
     LinearEndTemp,

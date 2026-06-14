@@ -30,10 +30,15 @@ fn main() {
         return;
     }
 
-    let out_dir = Path::new(&env::var("OUT_DIR").expect("OUT_DIR is set")).to_path_buf();
-    let publish_dir = out_dir.join("lhm-bridge");
-    let intermediate_dir = out_dir.join("lhm-bridge-build");
-    let nuget_dir = out_dir.join(".nuget");
+    let workspace = manifest
+        .parent()
+        .and_then(Path::parent)
+        .expect("crate lives under workspace/crates");
+    let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    let bridge_target_dir = workspace.join("target").join("lhm-bridge").join(profile);
+    let publish_dir = bridge_target_dir.join("publish");
+    let intermediate_dir = bridge_target_dir.join("obj");
+    let nuget_dir = bridge_target_dir.join("nuget");
 
     let mut command = Command::new("dotnet");
     command
@@ -82,6 +87,10 @@ fn has_dotnet_sdk() -> bool {
 
 fn warn_output(label: &str, output: &std::process::Output) {
     println!("cargo:warning={label}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines().take(20) {
+        println!("cargo:warning={line}");
+    }
     let stderr = String::from_utf8_lossy(&output.stderr);
     for line in stderr.lines().take(20) {
         println!("cargo:warning={line}");

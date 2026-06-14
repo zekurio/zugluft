@@ -412,8 +412,7 @@ pub enum CurveKind {
     /// Point graph: linear interpolation between `(°C, target %)` points,
     /// clamped to the first/last point outside their span.
     Graph { points: Vec<(f32, f32)> },
-    /// Threshold curve: hold `before` until `threshold`, then switch or ramp
-    /// to `after` over `ramp` °C.
+    /// Breakpoint: hold `before` through `threshold`, then switch to `after`.
     Trigger {
         #[serde(default = "default_curve_trigger_threshold")]
         threshold: f32,
@@ -421,11 +420,9 @@ pub enum CurveKind {
         before: f32,
         #[serde(default = "default_curve_trigger_after")]
         after: f32,
-        #[serde(default)]
-        ramp: f32,
     },
-    /// Two-point line: interpolate between the points and keep extrapolating
-    /// past them, clamped only to the safe 0-100 % target range.
+    /// Two-point line: hold the first duty before `start`, interpolate to
+    /// `end`, then hold the second duty after it.
     Linear {
         #[serde(default = "default_curve_linear_start")]
         start: (f32, f32),
@@ -444,13 +441,11 @@ impl CurveKind {
                 threshold,
                 before,
                 after,
-                ramp,
             } => Self::Trigger {
                 threshold: finite_or(*threshold, default_curve_trigger_threshold())
                     .clamp(-40.0, 150.0),
                 before: sanitize_percent(*before, default_curve_trigger_before()),
                 after: sanitize_percent(*after, default_curve_trigger_after()),
-                ramp: finite_or(*ramp, 0.0).clamp(0.0, 100.0),
             },
             Self::Linear { start, end } => {
                 let mut start = sanitize_point(*start, default_curve_linear_start());
@@ -503,32 +498,27 @@ impl CurveKind {
                     threshold,
                     before,
                     after,
-                    ramp,
                 } = self.sanitized()
                 else {
                     unreachable!();
                 };
-                if ramp <= f32::EPSILON || input <= threshold {
-                    Some(if input <= threshold { before } else { after })
-                } else if input >= threshold + ramp {
-                    Some(after)
-                } else {
-                    let fraction = (input - threshold) / ramp;
-                    Some(sanitize_percent(
-                        before + (after - before) * fraction,
-                        before,
-                    ))
-                }
+                Some(if input <= threshold { before } else { after })
             }
             Self::Linear { .. } => {
                 let Self::Linear { start, end } = self.sanitized() else {
                     unreachable!();
                 };
-                let slope = (end.1 - start.1) / (end.0 - start.0).max(f32::EPSILON);
-                Some(sanitize_percent(
-                    start.1 + (input - start.0) * slope,
-                    start.1,
-                ))
+                if input <= start.0 {
+                    Some(start.1)
+                } else if input >= end.0 {
+                    Some(end.1)
+                } else {
+                    let fraction = (input - start.0) / (end.0 - start.0).max(f32::EPSILON);
+                    Some(sanitize_percent(
+                        start.1 + (end.1 - start.1) * fraction,
+                        start.1,
+                    ))
+                }
             }
         }
     }
@@ -590,7 +580,6 @@ mod tests {
             threshold: 60.0,
             before: 30.0,
             after: 90.0,
-            ramp: 0.0,
         };
 
         assert_eq!(curve.evaluate(59.0), Some(30.0));
@@ -599,30 +588,27 @@ mod tests {
     }
 
     #[test]
-    fn trigger_curve_can_ramp_after_threshold() {
+    fn trigger_curve_is_a_simple_breakpoint() {
         let curve = CurveKind::Trigger {
             threshold: 60.0,
             before: 30.0,
             after: 90.0,
-            ramp: 10.0,
         };
 
         assert_eq!(curve.evaluate(60.0), Some(30.0));
-        assert_eq!(curve.evaluate(65.0), Some(60.0));
-        assert_eq!(curve.evaluate(70.0), Some(90.0));
-        assert_eq!(curve.evaluate(75.0), Some(90.0));
+        assert_eq!(curve.evaluate(60.001), Some(90.0));
     }
 
     #[test]
-    fn linear_curve_extrapolates_past_its_points() {
+    fn linear_curve_clamps_outside_its_points() {
         let curve = CurveKind::Linear {
             start: (40.0, 40.0),
             end: (60.0, 60.0),
         };
 
-        assert_eq!(curve.evaluate(30.0), Some(30.0));
+        assert_eq!(curve.evaluate(30.0), Some(40.0));
         assert_eq!(curve.evaluate(50.0), Some(50.0));
-        assert_eq!(curve.evaluate(70.0), Some(70.0));
+        assert_eq!(curve.evaluate(70.0), Some(60.0));
     }
 
     #[test]

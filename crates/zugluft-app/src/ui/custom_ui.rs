@@ -283,28 +283,21 @@ impl Zugluft {
             CustomKind::Max => "Reports the highest of its inputs.",
         };
 
-        let panel = div()
-            .w(px(440.))
-            .flex()
-            .flex_col()
+        let panel = self
+            .modal_panel("custom-dialog", px(440.), cx)
+            .h(px(540.))
+            .overflow_hidden()
             .gap_3()
             .p_4()
-            .rounded_lg()
-            .bg(rgb(PANEL))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .shadow(floating_shadow())
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
-            )
             .child(
                 div()
+                    .flex_none()
                     .flex()
                     .items_center()
                     .gap_3()
                     .child(
                         div()
+                            .min_w(px(0.))
                             .text_lg()
                             .font_weight(FontWeight::MEDIUM)
                             .truncate()
@@ -319,56 +312,65 @@ impl Zugluft {
                             .child(value_text),
                     ),
             )
-            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Name"))
-            .child(self.render_dialog_text_field(name_input, true))
-            .child(self.render_appearance_controls(&def.id, "custom", cx))
             .child(
                 div()
+                    .id("custom-dialog-scroll")
+                    .flex_1()
+                    .min_h(px(0.))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Name"))
+                    .child(self.render_dialog_text_field(name_input, true))
+                    .child(self.render_appearance_controls(&def.id, "custom", cx))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Combine"))
+                            .child(kind_seg),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1p5()
+                            .children(rows)
+                            .children(def.inputs.is_empty().then(|| {
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_DIM))
+                                    .child("No inputs yet — add a temperature channel below.")
+                            }))
+                            .child(self.render_custom_add_dropdown(&def, chips, snapshots, cx)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Combine"))
-                    .child(kind_seg),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1p5()
-                    .children(rows)
-                    .children(def.inputs.is_empty().then(|| {
+                    .child(
                         div()
+                            .min_w(px(0.))
+                            .flex_1()
                             .text_xs()
                             .text_color(rgb(TEXT_DIM))
-                            .child("No inputs yet — add a temperature channel below.")
-                    }))
-                    .child(self.render_custom_add_dropdown(&def, chips, snapshots, cx)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .child(div().text_xs().text_color(rgb(TEXT_DIM)).child(summary))
-                    .child(div().flex_1())
-                    .child(self.button("custom-dialog-done", "Done", cx, |this, cx| {
-                        this.commit_custom_dialog(cx)
-                    })),
+                            .truncate()
+                            .child(summary),
+                    )
+                    .child(div().flex_none().child(self.button(
+                        "custom-dialog-done",
+                        "Done",
+                        cx,
+                        |this, cx| this.commit_custom_dialog(cx),
+                    ))),
             );
 
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(hsla(0.0, 0.0, 0.0, 0.55))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| this.close_custom_dialog(cx)),
-                )
-                .child(panel),
-        )
+        Some(self.modal_backdrop(panel, cx, |this, cx| this.close_custom_dialog(cx)))
     }
 
     /// A compact `[−] weight [+]` stepper for one Average input.

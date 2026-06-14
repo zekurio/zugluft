@@ -343,6 +343,33 @@ impl Zugluft {
             key,
             input: TextEdit::new(current),
             appearance,
+            device: None,
+        });
+        window.focus(&self.focus_handle);
+        cx.notify();
+    }
+
+    pub(super) fn begin_device_rename(
+        &mut self,
+        chip: String,
+        current: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.editing = None;
+        self.curve_dialog = None;
+        self.curve_name_edit = None;
+        self.custom_dialog = None;
+        self.custom_name_edit = None;
+        self.renaming = Some(Rename {
+            key: SensorKey {
+                kind: SensorKind::Temperature,
+                chip: 0,
+                index: 0,
+            },
+            input: TextEdit::new(current),
+            appearance: None,
+            device: Some(chip),
         });
         window.focus(&self.focus_handle);
         cx.notify();
@@ -352,21 +379,11 @@ impl Zugluft {
     /// plus, for graph lines, color and line-style controls. One dialog for
     /// renaming a sensor, fan or curve and restyling its graph line.
     pub(super) fn render_rename_dialog(&self, rename: &Rename, cx: &mut Context<Self>) -> Div {
-        let mut panel = div()
-            .w(px(480.))
-            .flex()
-            .flex_col()
+        let mut panel = self
+            .modal_panel("rename-dialog", px(480.), cx)
+            .overflow_y_scroll()
             .gap_3()
             .p_4()
-            .rounded_lg()
-            .bg(rgb(PANEL))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .shadow(floating_shadow())
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
-            )
             .child(div().font_weight(FontWeight::MEDIUM).child("Edit"))
             .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Name"))
             .child(self.render_dialog_text_field(&rename.input, true));
@@ -391,21 +408,10 @@ impl Zugluft {
                 })),
         );
 
-        div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(hsla(0.0, 0.0, 0.0, 0.55))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.renaming = None;
-                    cx.notify();
-                }),
-            )
-            .child(panel)
+        self.modal_backdrop(panel, cx, |this, cx| {
+            this.renaming = None;
+            cx.notify();
+        })
     }
 
     /// Keyboard input for the rename dialog.
@@ -437,6 +443,17 @@ impl Zugluft {
             return;
         };
         let text = rename.input.text.trim().to_string();
+        if let Some(chip) = rename.device {
+            config::save_chip_name(
+                &chip,
+                "name",
+                (!text.is_empty() && text != chip).then_some(text.as_str()),
+            );
+            self.names = config::load();
+            self.names_mtime = config::mtime();
+            cx.notify();
+            return;
+        }
         if let UiState::Service(ServiceState::Ready { chips, customs, .. }) = &self.state {
             match rename.key.kind {
                 SensorKind::Temperature | SensorKind::FanRpm | SensorKind::Power => {

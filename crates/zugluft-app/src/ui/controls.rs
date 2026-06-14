@@ -9,21 +9,10 @@ impl Zugluft {
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
-        let header_controls = [self.icon_button(
-            "calibrate-fans-ctl",
-            "icons/fan.svg",
-            "Calibrate",
-            cx,
-            |this, cx| {
-                let _ = this.tx.send(Request::Calibrate);
-                cx.notify();
-            },
-        )];
-
         // The page scrolls; without this an overflowing page squeezes the
         // shrinkable parts of the layout instead (and curves + tuning make
         // it overflow easily in short windows).
-        div().flex_1().min_h(px(0.)).overflow_hidden().child(
+        div().flex_1().min_h(px(0.)).overflow_hidden().p_2().child(
             div()
                 .id("controls-scroll")
                 .relative()
@@ -32,13 +21,19 @@ impl Zugluft {
                 .flex()
                 .flex_col()
                 .gap_3()
-                .p_2()
+                .p_3()
+                .rounded_lg()
+                .bg(rgb(PANEL))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .shadow(floating_shadow())
                 .child(
-                    div()
-                        .absolute()
-                        .top(px(10.))
-                        .right(px(12.))
-                        .children(header_controls),
+                    div().flex().flex_col().child(
+                        div()
+                            .text_base()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("Fans"),
+                    ),
                 )
                 .children(
                     chips
@@ -47,6 +42,8 @@ impl Zugluft {
                         .filter_map(|(ci, info)| self.render_chip(ci, info, snapshots.get(ci), cx)),
                 )
                 .child(self.render_curve_section(chips, snapshots, customs, cx))
+                .child(self.render_dashboard_sensor_section(chips, snapshots, customs, cx))
+                .child(self.render_curve_fab(cx))
                 .children((!notes.is_empty()).then(|| {
                     div()
                         .flex()
@@ -266,6 +263,9 @@ impl Zugluft {
             .flex()
             .flex_col()
             .gap_2()
+            .pt_3()
+            .border_t_1()
+            .border_color(rgb(BORDER))
             .child(
                 div()
                     .flex()
@@ -277,14 +277,7 @@ impl Zugluft {
                             .font_weight(FontWeight::MEDIUM)
                             .child("Curves"),
                     )
-                    .child(div().flex_1())
-                    .child(self.icon_button(
-                        "add-curve",
-                        "icons/plus.svg",
-                        "Add",
-                        cx,
-                        |this, cx| this.add_curve(cx),
-                    )),
+                    .child(div().flex_1()),
             )
             .child(if cards.is_empty() {
                 div().text_xs().text_color(rgb(TEXT_DIM)).child(
@@ -299,6 +292,293 @@ impl Zugluft {
                     .gap_2()
                     .children(cards)
             })
+    }
+
+    pub(super) fn render_dashboard_sensor_section(
+        &self,
+        chips: &[ChipInfo],
+        snapshots: &[ChipSnapshot],
+        customs: &[CustomSensorValue],
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let sensors = self
+            .sensor_readings(chips, snapshots, customs)
+            .into_iter()
+            .filter(|sensor| {
+                matches!(
+                    sensor.key.kind,
+                    SensorKind::Temperature | SensorKind::Power | SensorKind::Custom
+                )
+            })
+            .take(8)
+            .collect::<Vec<_>>();
+
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .pt_3()
+            .border_t_1()
+            .border_color(rgb(BORDER))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("Sensors"),
+                    )
+                    .child(div().flex_1()),
+            )
+            .child(if sensors.is_empty() {
+                div()
+                    .text_xs()
+                    .text_color(rgb(TEXT_DIM))
+                    .child("No telemetry sensors")
+            } else {
+                div().flex().flex_wrap().items_start().gap_2().children(
+                    sensors
+                        .iter()
+                        .map(|sensor| self.render_dashboard_sensor_card(sensor, cx)),
+                )
+            })
+    }
+
+    fn render_dashboard_sensor_card(&self, sensor: &SensorReading, cx: &mut Context<Self>) -> Div {
+        let key = sensor.key;
+        let channel = channel_key(key);
+        let label = sensor.label.clone();
+        let chip = sensor.chip_name.clone();
+        let device = match key.kind {
+            SensorKind::Custom => "Custom".to_string(),
+            _ => self.names.device_label(&sensor.chip_name),
+        };
+
+        div()
+            .w(px(188.))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p_2p5()
+            .rounded_lg()
+            .bg(rgb(BG))
+            .border_1()
+            .border_color(rgb(BORDER))
+            .shadow(subtle_shadow())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .w(px(8.))
+                            .h(px(8.))
+                            .flex_none()
+                            .rounded_full()
+                            .bg(rgb(sensor.color)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .truncate()
+                            .child(label.clone()),
+                    )
+                    .child(
+                        div()
+                            .id(("dashboard-sensor-rename", sensor_id(key)))
+                            .flex_none()
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                if key.kind == SensorKind::Custom {
+                                    this.open_custom_dialog(chip.clone(), cx);
+                                } else {
+                                    this.begin_rename(
+                                        key,
+                                        label.clone(),
+                                        Some((chip.clone(), channel.clone())),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            }))
+                            .child(
+                                svg()
+                                    .path("icons/pencil.svg")
+                                    .w(px(12.))
+                                    .h(px(12.))
+                                    .text_color(rgb(TEXT_DIM))
+                                    .hover(|s| s.text_color(rgb(TEXT))),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(TEXT_DIM))
+                    .truncate()
+                    .child(device),
+            )
+            .child(
+                div()
+                    .text_base()
+                    .font_family(FONT_MONO)
+                    .child(sensor.unit.format_value(sensor.value)),
+            )
+    }
+
+    pub(super) fn render_curve_fab(&self, cx: &mut Context<Self>) -> Div {
+        let open = self.open_dropdown == Some(Dropdown::CurveQuickOpen);
+        let toggle = Dropdown::CurveQuickOpen;
+        let menu = open.then(|| {
+            deferred(
+                div()
+                    .absolute()
+                    .right(px(0.))
+                    .bottom(px(62.))
+                    .w(px(230.))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .p_2()
+                    .rounded_lg()
+                    .bg(rgb(BG))
+                    .border_1()
+                    .border_color(rgb(BORDER))
+                    .shadow(floating_shadow())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                    )
+                    .child(
+                        div()
+                            .px_1()
+                            .pb_1()
+                            .text_xs()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(rgb(TEXT_DIM))
+                            .child("Create"),
+                    )
+                    .child(
+                        div()
+                            .id("quick-create-curve")
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .px_2()
+                            .py_1p5()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.open_dropdown = None;
+                                this.add_curve_with_kind(
+                                    CurveKind::Graph {
+                                        points: vec![(30.0, 20.0), (50.0, 40.0), (70.0, 100.0)],
+                                    },
+                                    cx,
+                                );
+                            }))
+                            .child(
+                                div()
+                                    .w(px(8.))
+                                    .h(px(8.))
+                                    .rounded_full()
+                                    .bg(rgb(FILL_MANUAL)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_0p5()
+                                    .child(div().text_sm().truncate().child("New curve"))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(TEXT_DIM))
+                                            .truncate()
+                                            .child("Map a temperature source to fan speed"),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("quick-create-sensor")
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .px_2()
+                            .py_1p5()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.open_dropdown = None;
+                                this.add_custom(cx);
+                            }))
+                            .child(div().w(px(8.)).h(px(8.)).rounded_full().bg(rgb(0x8bd17c)))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_0p5()
+                                    .child(div().text_sm().truncate().child("Sensor"))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(TEXT_DIM))
+                                            .truncate()
+                                            .child("Combine existing readings"),
+                                    ),
+                            ),
+                    ),
+            )
+        });
+
+        div().absolute().right(px(18.)).bottom(px(18.)).child(
+            div().relative().children(menu).child(
+                div()
+                    .id("curve-fab")
+                    .w(px(46.))
+                    .h(px(46.))
+                    .rounded_full()
+                    .bg(rgb(FILL_MANUAL))
+                    .border_1()
+                    .border_color(rgb(0x75b7ff))
+                    .shadow(floating_shadow())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(0.9))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.open_dropdown = if this.open_dropdown.as_ref() == Some(&toggle) {
+                            None
+                        } else {
+                            Some(toggle.clone())
+                        };
+                        cx.notify();
+                    }))
+                    .child(
+                        svg()
+                            .path("icons/plus.svg")
+                            .w(px(20.))
+                            .h(px(20.))
+                            .text_color(rgb(BG)),
+                    ),
+            ),
+        )
     }
 
     fn visibility_toggle(

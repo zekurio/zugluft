@@ -225,13 +225,59 @@ impl Zugluft {
             return None;
         }
 
+        let device_label = self.names.device_label(&info.name);
+        let raw_chip = info.name.clone();
+        let group: SharedString = format!("fan-chip-{ci}").into();
         Some(
             div()
                 .flex()
-                .flex_wrap()
-                .items_start()
+                .flex_col()
                 .gap_2()
-                .children(cards),
+                .child(
+                    div()
+                        .group(group.clone())
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(TEXT_DIM))
+                                .child(device_label.clone()),
+                        )
+                        .child(
+                            div()
+                                .id(("chip-rename", ci))
+                                .flex_none()
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.begin_device_rename(
+                                        raw_chip.clone(),
+                                        device_label.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                }))
+                                .child(
+                                    svg()
+                                        .path("icons/pencil.svg")
+                                        .w(px(12.))
+                                        .h(px(12.))
+                                        .text_color(gpui::transparent_black())
+                                        .group_hover(group, |s| s.text_color(rgb(TEXT_DIM)))
+                                        .hover(|s| s.text_color(rgb(TEXT))),
+                                ),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_start()
+                        .gap_2()
+                        .children(cards),
+                ),
         )
     }
 }

@@ -181,13 +181,11 @@ pub fn save_curve(def: &CurveDef) {
                 threshold,
                 before,
                 after,
-                ramp,
             } => {
                 table["kind"] = toml_edit::value("trigger");
                 table["threshold"] = toml_edit::value(round1(threshold));
                 table["before"] = toml_edit::value(round1(before));
                 table["after"] = toml_edit::value(round1(after));
-                table["ramp"] = toml_edit::value(round1(ramp));
             }
             CurveKind::Linear { start, end } => {
                 table["kind"] = toml_edit::value("linear");
@@ -468,8 +466,8 @@ pub fn write_template(chips: &[ChipInfo], snapshots: &[ChipSnapshot]) {
          # Fan curves: the Curves tab edits these; hand-editing works too.\n\
          # `source` is a hardware channel or {{ custom = \"mix\" }}. Graph\n\
          # `points` are [°C, target fan %] pairs and clamp at the ends;\n\
-         # `linear` uses start/end pairs and extrapolates; `trigger` uses\n\
-         # threshold, before, after, and ramp. Functions\n\
+         # `linear` uses start/end pairs and clamps outside them; `trigger`\n\
+         # uses threshold, before, and after. Functions\n\
          # fine-tune the base curve; standard hysteresis defaults to heat-up\n\
          # now, cool-down after a 2 °C drop for 2 seconds.\n\
          # [[curve]]\n\
@@ -484,7 +482,6 @@ pub fn write_template(chips: &[ChipInfo], snapshots: &[ChipSnapshot]) {
          # threshold = 60.0\n\
          # before = 35.0\n\
          # after = 85.0\n\
-         # ramp = 5.0\n\
          # kind = \"linear\"\n\
          # start = [35.0, 25.0]\n\
          # end = [75.0, 90.0]\n",

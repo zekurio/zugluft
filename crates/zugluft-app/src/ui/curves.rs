@@ -1,6 +1,12 @@
 use super::*;
 
 impl Zugluft {
+    fn active_curve_edit_id(&self) -> Option<&str> {
+        self.curve_dialog
+            .as_deref()
+            .or(self.selected_curve.as_deref())
+    }
+
     /// The curve a fan is assigned to: the optimistic value while an
     /// assignment is in flight, otherwise what the service published.
     pub(super) fn fan_curve(&self, key: FanKey, fan: &FanStatus) -> Option<String> {
@@ -85,7 +91,6 @@ impl Zugluft {
                     threshold,
                     before: _,
                     after: _,
-                    ramp: _,
                 },
                 CurveKindField::TriggerThreshold,
             ) => *threshold += delta,
@@ -94,7 +99,6 @@ impl Zugluft {
                     threshold: _,
                     before,
                     after: _,
-                    ramp: _,
                 },
                 CurveKindField::TriggerBefore,
             ) => *before += delta,
@@ -103,19 +107,9 @@ impl Zugluft {
                     threshold: _,
                     before: _,
                     after,
-                    ramp: _,
                 },
                 CurveKindField::TriggerAfter,
             ) => *after += delta,
-            (
-                CurveKind::Trigger {
-                    threshold: _,
-                    before: _,
-                    after: _,
-                    ramp,
-                },
-                CurveKindField::TriggerRamp,
-            ) => *ramp += delta,
             (CurveKind::Linear { start, end }, CurveKindField::LinearStartTemp) => {
                 start.0 = (start.0 + delta).clamp(-40.0, end.0 - 0.5);
             }
@@ -209,7 +203,7 @@ impl Zugluft {
 
     /// Creates a new curve over the first available temperature source and
     /// opens its editor.
-    pub(super) fn add_curve(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn add_curve_with_kind(&mut self, kind: CurveKind, cx: &mut Context<Self>) {
         let source = match self.first_temp_source().or_else(|| {
             self.names
                 .customs()
@@ -236,13 +230,12 @@ impl Zugluft {
             }],
             hysteresis: Default::default(),
             window: Default::default(),
-            kind: CurveKind::Graph {
-                points: vec![(30.0, 20.0), (50.0, 40.0), (70.0, 100.0)],
-            },
+            kind,
         };
         // Straight into the editor for the new curve.
         let id = def.id.clone();
         let name = def.name.clone();
+        self.selected_curve = Some(id.clone());
         self.curve_dialog = Some(id.clone());
         self.curve_name_edit = Some((id, TextEdit::new(name)));
         self.custom_dialog = None;
@@ -398,8 +391,7 @@ impl Zugluft {
     pub(super) fn curve_plot_value(&self, position: gpui::Point<Pixels>) -> Option<(f32, f32)> {
         let bounds = (*self.curve_bounds.borrow())?;
         let window = self
-            .curve_dialog
-            .as_deref()
+            .active_curve_edit_id()
             .and_then(|id| self.curve_for_display(id))
             .map(|def| def.window.sanitized())
             .unwrap_or_else(|| CurveWindow::default().sanitized());
@@ -416,7 +408,7 @@ impl Zugluft {
         let Some(bounds) = *self.curve_bounds.borrow() else {
             return;
         };
-        let Some(id) = self.curve_dialog.clone() else {
+        let Some(id) = self.active_curve_edit_id().map(str::to_string) else {
             return;
         };
         let Some(mut def) = self.curve_for_display(&id) else {

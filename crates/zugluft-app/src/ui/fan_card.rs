@@ -170,7 +170,7 @@ impl Zugluft {
             .gap_1p5()
             .p_2p5()
             .rounded_lg()
-            .bg(rgb(PANEL))
+            .bg(rgb(BG))
             .border_1()
             .border_color(rgb(BORDER))
             .shadow(subtle_shadow())

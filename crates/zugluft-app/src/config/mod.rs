@@ -178,6 +178,12 @@ impl NamesConfig {
             .unwrap_or_else(|| format!("Fan {}", index + 1))
     }
 
+    pub fn device_label(&self, chip: &str) -> String {
+        self.lookup(chip, "name")
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| chip.to_string())
+    }
+
     /// Custom sensor definitions, ids and names filled in.
     pub fn customs(&self) -> &[CustomSensorDef] {
         &self.custom

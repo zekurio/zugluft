@@ -188,8 +188,7 @@ fn curve_shape_points(kind: &CurveKind, window: CurveWindow) -> Vec<(f32, f32)> 
             threshold,
             before,
             after,
-            ramp,
-        } if ramp <= f32::EPSILON => {
+        } => {
             if threshold <= window.temp_min {
                 vec![(window.temp_min, after), (window.temp_max, after)]
             } else if threshold >= window.temp_max {
@@ -203,15 +202,8 @@ fn curve_shape_points(kind: &CurveKind, window: CurveWindow) -> Vec<(f32, f32)> 
                 ]
             }
         }
-        CurveKind::Trigger { .. } => {
-            let mut temps = vec![window.temp_min, window.temp_max];
-            if let CurveKind::Trigger {
-                threshold, ramp, ..
-            } = kind.sanitized()
-            {
-                temps.push(threshold);
-                temps.push(threshold + ramp);
-            }
+        CurveKind::Linear { start, end } => {
+            let mut temps = vec![window.temp_min, window.temp_max, start.0, end.0];
             temps.sort_by(|a, b| a.total_cmp(b));
             temps.dedup_by(|a, b| (*a - *b).abs() < 0.05);
             temps
@@ -220,9 +212,5 @@ fn curve_shape_points(kind: &CurveKind, window: CurveWindow) -> Vec<(f32, f32)> 
                 .filter_map(|temp| kind.evaluate(temp).map(|percent| (temp, percent)))
                 .collect()
         }
-        CurveKind::Linear { .. } => [window.temp_min, window.temp_max]
-            .into_iter()
-            .filter_map(|temp| kind.evaluate(temp).map(|percent| (temp, percent)))
-            .collect(),
     }
 }

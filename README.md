@@ -1,150 +1,108 @@
 # zugluft
 
-Fast, simple fan control for Windows. A native Rust alternative to FanControl:
-a small privileged service owns the hardware, the
-[GPUI](https://www.gpui.rs/)-rendered app just talks to it, and
-LibreHardwareMonitor does the device-specific hardware work.
+zugluft is a native Rust fan-control tool for Windows. A privileged Windows
+service owns hardware access, while the unelevated desktop app and CLI talk to
+it over named pipes.
 
-> *Zugluft* (German): the draft of air you feel when two windows are open.
+Version: `0.1.0`
 
-## Status: V0.5
+## What Works
 
-What works today:
+- Windows service running as LocalSystem.
+- GPUI desktop app for live fan control, fan curves, tuning and calibration.
+- `zugluftctl status` through the service without elevation.
+- Direct development commands through `zugluftctl detect`, `watch`, `set`,
+  `auto` and `report`.
+- LibreHardwareMonitor hardware support through the NativeAOT bridge.
 
-- **`zugluft-service`** — a Windows service (LocalSystem, auto-start) that owns
-  all hardware access and serves clients over named pipes. Installing it is
-  the only step that ever needs elevation. Stopping it hands every fan back
-  to the BIOS.
-- **Hardware layer** (`zugluft-hw`): uses
-  [LibreHardwareMonitorLib](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
-  through a small NativeAOT bridge. LHM handles motherboard, CPU, GPU, storage
-  and controller sensor/control support; zugluft keeps the service, curves,
-  calibration and safety policy.
-- **`zugluft`** — unelevated GPUI app: one row per fan with live RPM and a
-  click/drag target slider, auto/manual/curve switching, temperature readouts
-  and graph-based fan curves with function tuning. Offers one-click (one UAC
-  prompt) service installation when the service isn't running yet.
-- **`zugluftctl`** — CLI: `status` (asks the service, no admin needed), plus
-  direct-hardware commands for development: `detect`, `watch`,
-  `set <fan> <pct>`, `auto <fan|all>`, `report`.
+Close other fan-control tools before using zugluft. Two tools writing fan
+duties at once can fight over the same hardware.
 
-Not yet: richer control/fan pairing metadata, per-board fan-header names.
+## Install
 
-## Architecture
+Download `zugluft-setup-v0.1.0-windows-x64.exe` from the `v0.1.0` release and
+run it.
 
-```
-┌────────────────┐   \\.\pipe\zugluft.events    ┌──────────────────────┐
-│  zugluft (GUI) │ ◄─────────── state ───────── │   zugluft-service    │
-│   unelevated   │ ──────── requests ─────────► │ (Windows service,    │
-└────────────────┘   \\.\pipe\zugluft.control   │  LocalSystem)        │
-┌────────────────┐                              │  ┌────────────────┐  │
-│   zugluftctl   │ ◄──── status (events) ────── │  │   zugluft-hw   │  │
-└────────────────┘                              │  │      LHM       │  │
-                                                └──┴────────────────┴──┘
+The installer asks for UAC elevation, copies the GUI, CLI, service and
+LibreHardwareMonitor bridge DLL to `C:\Program Files\zugluft`, runs the PawnIO
+driver installer when PawnIO is not already present, then registers and starts
+the Windows service.
+
+After that, launch the app from the install directory:
+
+```powershell
+C:\Program Files\zugluft\zugluft.exe
 ```
 
-- Transport: newline-delimited JSON over two single-direction named pipes.
-  (Two pipes because synchronous pipe handles serialize reads and writes on
-  the same instance — a blocking read would park every write forever.)
-- Pipe ACL: SYSTEM and Administrators get full access, interactive (logged-on
-  desktop) users get connect. Network logons get nothing.
-- The service polls the chip every 500 ms, coalesces fan writes
-  (last-one-wins per fan during slider drags), and keeps manual/curve settings
-  while it runs — closing the GUI changes nothing. Service stop/uninstall
-  restores BIOS control.
+The service registration stores the current path to `zugluft-service.exe`. If
+you change the install directory, rerun the setup installer.
 
-```
-crates/
-├── zugluft-hw       hardware access (LibreHardwareMonitor NativeAOT bridge)
-├── zugluft-ipc      protocol types + named-pipe transport
-├── zugluft-service  Windows service: worker, pipe servers, SCM install/uninstall
-├── zugluft-cli      zugluftctl — service status + direct-hardware dev tool
-└── zugluft-app      GPUI app (pipe client + UI)
-```
-
-## Requirements
-
-- Windows.
-- The .NET SDK 8.0+ when building `zugluft-hw`'s LHM bridge from source. If
-  the SDK is absent, Rust still builds, but runtime hardware detection needs
-  `zugluft-lhm-bridge.dll` beside the executable, in `modules\`, in
-  `%ProgramData%\zugluft\`, or pointed to by `ZUGLUFT_LHM_BRIDGE`.
-- LHM's own low-level requirements still apply for your hardware. Recent LHM
-  uses PawnIO for privileged motherboard access, so machines that need it must
-  have the relevant driver/module setup available.
-- **Close other fan-control tools first.** Multiple programs writing different
-  duties to the same fan can still fight each other even when the low-level
-  access itself is synchronized.
-
-## Build & run
+## Build
 
 ```powershell
 cargo build --release
-
-# One-time service setup (elevated terminal — or just click the button the
-# app shows on first start):
-.\target\release\zugluft-service.exe install
-
-# Daily use — no elevation:
-.\target\release\zugluft.exe
-.\target\release\zugluftctl.exe status
-
-# Service management (elevated):
-.\target\release\zugluft-service.exe stop        # fans back to BIOS
-.\target\release\zugluft-service.exe uninstall
 ```
 
-The service registers its own executable path — if you move or rebuild the
-binary to a new location, run `install` again. Service log:
-`C:\ProgramData\zugluft\service.log`.
+Building the LibreHardwareMonitor bridge from source requires the .NET SDK
+8.0+. The release package includes the bridge DLL, so users do not need the
+.NET runtime.
 
-## Release automation
+Useful commands:
 
-GitHub Actions builds Windows x64 packages containing `zugluft.exe`,
-`zugluft-service.exe`, `zugluftctl.exe`, `zugluft-lhm-bridge.dll`, install
-notes and third-party notices.
+```powershell
+cargo check
+cargo clippy
+.\target\release\zugluft-service.exe run-console
+.\target\release\zugluftctl.exe status
+```
 
-- Full release: run the **Release** workflow manually with a SemVer input such
-  as `0.5.0`. It publishes `v0.5.0` and
-  `zugluft-v0.5.0-windows-x64.zip`.
-- Nightly release: the **Nightly** workflow runs daily and can also be run
-  manually. It finds the latest stable tag `vX.Y.Z`, bumps the patch, and
-  publishes a prerelease like `vX.Y.(Z+1)-nightly.YYYYMMDD.RUN`.
+## Release
 
-### Direct-hardware mode (development)
+Stable releases are built by the **Release** GitHub Actions workflow from a
+tag like `v0.1.0`, or by running it manually with `channel=stable` and
+`version=0.1.0`.
 
-`zugluftctl detect/watch/set/auto/report` bypass the service and talk to LHM
-directly; they may need an elevated terminal depending on the hardware. `set`
-records the fan's pre-manual LHM control state in
-`%LOCALAPPDATA%\zugluft\fan-baseline.txt`, so `auto` can restore it from a
-different invocation. Raw EC register dumps are not available through the LHM
-backend.
+- `v0.1.0`
+- `zugluft-setup-v0.1.0-windows-x64.exe`
+- `checksums.txt`
 
-## Safety notes
+The setup executable installs an uninstaller at
+`C:\Program Files\zugluft\uninstall.exe`. PawnIO is left installed on uninstall
+because it is a shared hardware driver used by other tools.
 
-- Manual targets are remembered by the service and re-applied after restart;
-  stopping the service still restores firmware control until it starts again.
-- Setting 0 % on a CPU fan header means the fan stops. The hardware's thermal
-  shutdown is your last line of defense; don't test that line.
+Nightlies are built by the same **Release** workflow on its schedule or with
+`channel=nightly`. They use the next minor after the latest stable tag, so
+after `v0.1.0` the nightly line is:
 
-## Roadmap
+```text
+v0.2.0-nightly.YYYYMMDD.RUN
+```
 
-1. ~~**Fan curves**~~ — done: temp source → graph curve → function pipeline
-   (`identity`, `standard` hysteresis, or `ema`) → target fan %, then calibrated
-   fans map that target through their measured command→RPM graph and the
-   service writes PWM. Uncalibrated fans fall back to raw PWM percent. Curves
-   are evaluated in the service so fans stay controlled from boot, before
-   login, GUI closed. Edited in the Curves tab or as `[[curve]]` entries in
-   config.toml. Curve kinds are `graph` (editable points, clamped ends),
-   `trigger` (threshold with instant switch or ramp), and `linear` (two points,
-   extrapolated beyond them); more kinds slot in as new `CurveKind` variants.
-2. Improve LHM fan/control pairing and labels.
-3. ~~Tray icon~~, config persistence in `%ProgramData%\zugluft`.
-4. Per-board fan-header naming.
+## Architecture
 
-## Licenses & credit
+```text
+zugluft-app (GUI)       \
+zugluft-cli (zugluftctl) > named pipes > zugluft-service > zugluft-hw > LHM
+zugluft-ipc (protocol) /
+```
+
+The IPC layer uses two single-direction named pipes:
+
+- `\\.\pipe\zugluft.events` for service-to-client state snapshots.
+- `\\.\pipe\zugluft.control` for client-to-service requests.
+
+The service publishes complete state snapshots rather than per-request replies.
+Custom sensors, fan curves and per-fan curve assignments are evaluated by the
+service so control keeps working with no GUI running.
+
+## Files
+
+- Service log: `C:\ProgramData\zugluft\service.log`
+- Calibration data: `C:\ProgramData\zugluft\calibration.json`
+- GUI config: `%APPDATA%\zugluft\config.toml`
+
+## License Notice
 
 Hardware support comes from
-[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
-(MPL-2.0). The bridge loads LHM as a NuGet dependency at build time; zugluft
-does not vendor PawnIO modules or hardware register maps.
+[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor),
+licensed under MPL-2.0.

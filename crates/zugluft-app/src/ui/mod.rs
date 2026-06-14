@@ -42,6 +42,7 @@ mod editing;
 mod fan_card;
 mod fans;
 mod graph;
+mod management;
 mod sensor_panel;
 mod sensors;
 mod settings_view;
@@ -108,6 +109,8 @@ pub struct Zugluft {
     editing: Option<FieldEdit>,
     /// Optimistic settings per fan, held until the service echoes them.
     pending_settings: HashMap<FanKey, FanSettings>,
+    selected_curve: Option<String>,
+    selected_fan: Option<FanKey>,
     /// Keyboard focus anchor for the rename editor.
     focus_handle: FocusHandle,
     /// Whether the service has the current custom sensor definitions;
@@ -144,7 +147,7 @@ impl Zugluft {
             tx,
             seen_seq: 0,
             state: UiState::Connecting,
-            active_view: AppView::Controls,
+            active_view: AppView::Dashboard,
             dragging: None,
             pending: HashMap::new(),
             sensor_history: Vec::new(),
@@ -173,6 +176,8 @@ impl Zugluft {
             expanded: HashSet::new(),
             editing: None,
             pending_settings: HashMap::new(),
+            selected_curve: None,
+            selected_fan: None,
             focus_handle: cx.focus_handle(),
             customs_synced: false,
             window_observer: false,

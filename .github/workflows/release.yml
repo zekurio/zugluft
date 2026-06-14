@@ -1,29 +1,215 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "!v*-nightly.*"
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
-      version:
-        description: "Stable SemVer to release, for example 0.5.0 or v0.5.0"
+      channel:
+        description: Release channel
         required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - nightly
+      version:
+        description: Stable version to release, for example 0.1.0 or v0.1.0
+        required: false
         type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.inputs.version }}
+  group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  windows:
-    name: Build Windows release
-    runs-on: windows-latest
+  check_changes:
+    name: Check for nightly changes
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - id: check
+        name: Compare main to last nightly
+        shell: bash
+        run: |
+          last_nightly_tag="$(git tag --list 'v*-nightly.*' --sort=-creatordate | head -n 1)"
+
+          if [[ -z "$last_nightly_tag" ]]; then
+            echo "No previous nightly tag found; releasing."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          last_nightly_sha="$(git rev-parse "$last_nightly_tag^{commit}")"
+          head_sha="$(git rev-parse HEAD)"
+
+          if [[ "$last_nightly_sha" == "$head_sha" ]]; then
+            echo "No changes since $last_nightly_tag; skipping nightly release."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes detected since $last_nightly_tag; releasing."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  preflight:
+    name: Preflight
+    needs: [check_changes]
+    if: |
+      !failure() &&
+      !cancelled() &&
+      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
+    runs-on: ubuntu-latest
+    outputs:
+      release_channel: ${{ steps.meta.outputs.release_channel }}
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+      make_latest: ${{ steps.meta.outputs.make_latest }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      previous_tag: ${{ steps.previous_tag.outputs.previous_tag }}
+      ref: ${{ steps.meta.outputs.ref }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - id: meta
+        name: Resolve release metadata
+        shell: bash
+        env:
+          DISPATCH_CHANNEL: ${{ github.event.inputs.channel }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          RUN_STARTED_AT: ${{ github.run_started_at }}
+        run: |
+          release_ref="$(git rev-parse HEAD)"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+
+          cargo_version="$(
+            python - <<'PY'
+          import tomllib
+          with open("Cargo.toml", "rb") as file:
+              data = tomllib.load(file)
+          print(data["workspace"]["package"]["version"])
+          PY
+          )"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL}" == "nightly" ) ]]; then
+            stable_tag="$(
+              git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname |
+                grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+                head -n 1 || true
+            )"
+            base_version="${stable_tag#v}"
+            if [[ -z "$base_version" ]]; then
+              base_version="$cargo_version"
+            fi
+            if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Nightly base version must be plain semver, got: $base_version" >&2
+              exit 1
+            fi
+
+            IFS=. read -r major minor patch <<< "$base_version"
+            next_minor=$((minor + 1))
+            nightly_date="$(date -u -d "$RUN_STARTED_AT" +%Y%m%d)"
+            version="$major.$next_minor.0-nightly.$nightly_date.${GITHUB_RUN_NUMBER}"
+            tag="v$version"
+
+            {
+              echo "release_channel=nightly"
+              echo "version=$version"
+              echo "tag=$tag"
+              echo "release_name=zugluft Nightly $version ($short_sha)"
+              echo "is_prerelease=true"
+              echo "make_latest=false"
+              echo "ref=$release_ref"
+              echo "short_sha=$short_sha"
+            } >> "$GITHUB_OUTPUT"
+          else
+            if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+              raw="${DISPATCH_VERSION}"
+              if [[ -z "$raw" ]]; then
+                echo "Stable workflow dispatch releases require the version input." >&2
+                exit 1
+              fi
+            else
+              raw="${GITHUB_REF_NAME}"
+            fi
+
+            version="${raw#v}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Stable release versions must be plain semver (vX.Y.Z), got: $raw" >&2
+              exit 1
+            fi
+            if [[ "$cargo_version" != "$version" ]]; then
+              echo "Stable release $version requires Cargo.toml workspace version $version, got $cargo_version." >&2
+              exit 1
+            fi
+
+            {
+              echo "release_channel=stable"
+              echo "version=$version"
+              echo "tag=v$version"
+              echo "release_name=zugluft v$version"
+              echo "is_prerelease=false"
+              echo "make_latest=true"
+              echo "ref=$release_ref"
+              echo "short_sha=$short_sha"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: previous_tag
+        name: Resolve previous release tag
+        shell: bash
+        env:
+          RELEASE_CHANNEL: ${{ steps.meta.outputs.release_channel }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if [[ "$RELEASE_CHANNEL" == "nightly" ]]; then
+            previous_tag="$(
+              git tag --list 'v*-nightly.*' --sort=-creatordate |
+                grep -Fxv "$RELEASE_TAG" |
+                head -n 1 || true
+            )"
+          else
+            previous_tag="$(
+              git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname |
+                grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+                grep -Fxv "$RELEASE_TAG" |
+                head -n 1 || true
+            )"
+          fi
+
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Build Windows installer
+    needs: [preflight]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.ref }}
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -33,52 +219,121 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Resolve version
-        id: version
+      - name: Build installer
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Version "${{ needs.preflight.outputs.version }}"
+
+      - name: Validate installer asset
         shell: pwsh
         run: |
-          $Raw = "${{ inputs.version }}".Trim()
-          if ($Raw -notmatch '^v?\d+\.\d+\.\d+$') {
-              throw "Stable releases must use SemVer like 0.5.0 or v0.5.0"
+          $ErrorActionPreference = "Stop"
+          $installer = Get-ChildItem -LiteralPath dist -Filter "zugluft-setup-*.exe" -File |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "No Windows installer was produced in dist."
           }
 
-          $Version = $Raw.TrimStart("v")
-          $Tag = "v$Version"
-          git fetch --tags --force
-          if (git tag --list $Tag) {
-              throw "Tag $Tag already exists"
-          }
-
-          "version=$Version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "tag=$Tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
-      - name: Package Windows binaries
-        id: package
-        shell: pwsh
-        run: ./scripts/package-windows.ps1 -Version "${{ steps.version.outputs.version }}"
-
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.package.outputs.package_name }}
-          path: |
-            ${{ steps.package.outputs.zip_path }}
-            ${{ steps.package.outputs.checksum_path }}
+          name: windows-release-assets
+          path: dist/zugluft-setup-*.exe
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - preflight
+      - windows
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.windows.result == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Windows release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-release-assets
+          path: release-assets
+
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          tmp="$(mktemp)"
+          (
+            cd release-assets
+            find . -maxdepth 1 -type f -printf '%P\n' | sort | while IFS= read -r file; do
+              sha256sum "$file"
+            done
+          ) > "$tmp"
+          mv "$tmp" release-assets/checksums.txt
+          cat release-assets/checksums.txt
+
+      - name: Write release notes
+        uses: actions/github-script@v8
+        env:
+          RELEASE_CHANNEL: ${{ needs.preflight.outputs.release_channel }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_REF: ${{ needs.preflight.outputs.ref }}
+          PREVIOUS_TAG: ${{ needs.preflight.outputs.previous_tag }}
+        with:
+          script: |
+            const fs = require("node:fs");
+
+            const channel = process.env.RELEASE_CHANNEL;
+            const tag = process.env.RELEASE_TAG;
+            const previousTag = process.env.PREVIOUS_TAG;
+            const { owner, repo } = context.repo;
+            const channelName = channel === "stable" ? "Stable" : "Nightly";
+
+            let generatedNotes = "";
+            try {
+              const response = await github.rest.repos.generateReleaseNotes({
+                owner,
+                repo,
+                tag_name: tag,
+                target_commitish: process.env.RELEASE_REF,
+                previous_tag_name: previousTag || undefined,
+              });
+              generatedNotes = response.data.body.trim();
+            } catch (error) {
+              core.warning(`Could not generate GitHub release notes: ${error.message}`);
+              generatedNotes = previousTag
+                ? `Full changelog: https://github.com/${owner}/${repo}/compare/${previousTag}...${tag}`
+                : `Changes are included from ${process.env.RELEASE_REF}.`;
+            }
+
+            const body = [
+              `## ${channelName} Windows Release`,
+              "",
+              "Download the Windows x64 installer from the assets below.",
+              "The installer copies the GUI, CLI, service and LibreHardwareMonitor bridge DLL to `C:\\\\Program Files\\\\zugluft`, runs the PawnIO driver installer when PawnIO is missing, then registers and starts the `zugluft` Windows service.",
+              "",
+              "## Installed Components",
+              "",
+              "- `zugluft.exe` desktop app",
+              "- `zugluftctl.exe` command-line client",
+              "- `zugluft-service.exe` privileged Windows service",
+              "- `zugluft-lhm-bridge.dll` NativeAOT LibreHardwareMonitor bridge",
+              "",
+              "## Checksums",
+              "",
+              "See `checksums.txt` in the release assets.",
+              "",
+              generatedNotes,
+            ].join("\n");
+
+            fs.writeFileSync("release-notes.md", `${body}\n`);
 
       - name: Publish GitHub release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $Tag = "${{ steps.version.outputs.tag }}"
-          $Zip = "${{ steps.package.outputs.zip_path }}"
-          $Checksum = "${{ steps.package.outputs.checksum_path }}"
-          $Notes = "Windows x64 package for $Tag.`n`nUnzip to a stable folder, run zugluft-service.exe install from an elevated PowerShell, then start zugluft.exe normally. The service registration stores the executable path."
-
-          gh release create $Tag `
-            $Zip `
-            $Checksum `
-            --target "${{ github.sha }}" `
-            --title "zugluft $Tag" `
-            --notes $Notes `
-            --generate-notes
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          target_commitish: ${{ needs.preflight.outputs.ref }}
+          name: ${{ needs.preflight.outputs.release_name }}
+          body_path: release-notes.md
+          prerelease: ${{ needs.preflight.outputs.is_prerelease }}
+          make_latest: ${{ needs.preflight.outputs.make_latest }}
+          files: |
+            release-assets/*.exe
+            release-assets/checksums.txt
+          fail_on_unmatched_files: true

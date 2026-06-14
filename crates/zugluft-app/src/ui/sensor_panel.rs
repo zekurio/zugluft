@@ -252,7 +252,16 @@ impl Zugluft {
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
-        let sensors = self.sensor_readings(chips, snapshots, customs);
+        let sensors = self
+            .sensor_readings(chips, snapshots, customs)
+            .into_iter()
+            .filter(|sensor| {
+                matches!(
+                    sensor.key.kind,
+                    SensorKind::Temperature | SensorKind::Power | SensorKind::Custom
+                )
+            })
+            .collect::<Vec<_>>();
         let graph = self.graph_data(&sensors);
         // The filter narrows the list; the graph keeps showing whatever is
         // toggled on.
@@ -272,7 +281,6 @@ impl Zugluft {
             let mut kinds: Vec<(&'static str, Vec<&SensorReading>)> = Vec::new();
             for (kind, kind_label) in [
                 (SensorKind::Temperature, "Temperatures"),
-                (SensorKind::FanRpm, "Fans"),
                 (SensorKind::Power, "Power"),
             ] {
                 let members: Vec<&SensorReading> = sensors
@@ -284,7 +292,7 @@ impl Zugluft {
                 }
             }
             if !kinds.is_empty() {
-                sections.push((chip_name, kinds));
+                sections.push((self.names.device_label(&chip_name), Some(chip_name), kinds));
             }
         }
         let custom_members: Vec<&SensorReading> = sensors
@@ -292,7 +300,11 @@ impl Zugluft {
             .filter(|s| s.key.kind == SensorKind::Custom && matches(s))
             .collect();
         if !custom_members.is_empty() {
-            sections.push(("Custom Sensors".to_string(), vec![("", custom_members)]));
+            sections.push((
+                "Custom Sensors".to_string(),
+                None,
+                vec![("", custom_members)],
+            ));
         }
 
         // No page header — the breadcrumb names the tab, and dropping it
@@ -316,7 +328,7 @@ impl Zugluft {
     ) -> gpui::Stateful<Div> {
         // The machine's hostname titles the panel — these are this box's
         // sensors, after all.
-        let title = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Active Sensors".to_string());
+        let title = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Telemetry".to_string());
         div()
             .id("sensor-panel")
             .w(px(260.))
@@ -343,34 +355,74 @@ impl Zugluft {
                     .child(title),
             )
             .child(div().px_1().pb_1().child(self.render_search_box(cx)))
-            .children(sections.into_iter().enumerate().map(|(i, (chip, kinds))| {
-                let mut section = div().flex().flex_col().gap_1().child(
-                    div()
-                        .px_1()
-                        .pt_1p5()
-                        .pb_0p5()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(rgb(TEXT))
-                        .child(chip),
-                );
-                // A hairline between chips keeps the sections scannable.
-                if i > 0 {
-                    section = section.border_t_1().border_color(rgb(BORDER)).mt_1();
-                }
-                section.children(
-                    kinds
-                        .into_iter()
-                        .map(|(kind, members)| self.render_sensor_group(kind, &members, cx)),
-                )
-            }))
+            .children(
+                sections
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (chip, raw_chip, kinds))| {
+                        let group: SharedString = format!("sensor-section-{i}").into();
+                        let chip_for_rename = raw_chip.clone();
+                        let chip_label = chip.clone();
+                        let header = div()
+                            .group(group.clone())
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .px_1()
+                            .pt_1p5()
+                            .pb_0p5()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(rgb(TEXT))
+                                    .child(chip),
+                            )
+                            .children(chip_for_rename.map(|raw_chip| {
+                                div()
+                                    .id(("telemetry-device-rename", i))
+                                    .flex_none()
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            this.begin_device_rename(
+                                                raw_chip.clone(),
+                                                chip_label.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        },
+                                    ))
+                                    .child(
+                                        svg()
+                                            .path("icons/pencil.svg")
+                                            .w(px(12.))
+                                            .h(px(12.))
+                                            .text_color(gpui::transparent_black())
+                                            .group_hover(group, |s| s.text_color(rgb(TEXT_DIM)))
+                                            .hover(|s| s.text_color(rgb(TEXT))),
+                                    )
+                            }));
+                        let mut section = div().flex().flex_col().gap_1().child(header);
+                        // A hairline between chips keeps the sections scannable.
+                        if i > 0 {
+                            section = section.border_t_1().border_color(rgb(BORDER)).mt_1();
+                        }
+                        section.children(
+                            kinds.into_iter().map(|(kind, members)| {
+                                self.render_sensor_group(kind, &members, cx)
+                            }),
+                        )
+                    }),
+            )
             .children(sensors.is_empty().then(|| {
                 div()
                     .px_1()
                     .py_1()
                     .text_xs()
                     .text_color(rgb(TEXT_DIM))
-                    .child("No temperature sensors")
+                    .child("No telemetry")
             }))
             // Derived-sensor creation lives with the sensor list it adds to.
             .child(
@@ -397,8 +449,10 @@ impl Zugluft {
         cx: &mut Context<Self>,
     ) -> Div {
         let page = match self.active_view {
-            AppView::Controls => self.render_controls(&chips, &snapshots, &notes, &customs, cx),
-            AppView::Sensors => self.render_sensors(&chips, &snapshots, &customs, cx),
+            AppView::Dashboard => self.render_controls(&chips, &snapshots, &notes, &customs, cx),
+            AppView::Curves => self.render_curves_page(&chips, &snapshots, &customs, cx),
+            AppView::Fans => self.render_fans_page(&chips, &snapshots, cx),
+            AppView::Telemetry => self.render_sensors(&chips, &snapshots, &customs, cx),
             AppView::Settings => self.render_settings(&chips, &snapshots, cx),
         };
 

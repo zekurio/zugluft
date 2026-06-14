@@ -63,6 +63,53 @@ impl Zugluft {
         )
     }
 
+    pub(super) fn modal_panel(
+        &self,
+        id: impl Into<ElementId>,
+        width: Pixels,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        div()
+            .id(id)
+            .w(width)
+            .max_w(relative(1.))
+            .max_h(relative(1.))
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .flex()
+            .flex_col()
+            .rounded_lg()
+            .bg(rgb(PANEL))
+            .border_1()
+            .border_color(rgb(BORDER))
+            .shadow(floating_shadow())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+            )
+    }
+
+    pub(super) fn modal_backdrop(
+        &self,
+        panel: impl IntoElement,
+        cx: &mut Context<Self>,
+        on_close: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+    ) -> Div {
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p_2()
+            .bg(hsla(0.0, 0.0, 0.0, 0.55))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _: &MouseDownEvent, _, cx| on_close(this, cx)),
+            )
+            .child(panel)
+    }
+
     /// One icon-only entry in the navigation rail. The active view gets an
     /// accent-tinted icon on a raised tile.
     pub(super) fn nav_item(&self, view: AppView, cx: &mut Context<Self>) -> Div {
@@ -113,8 +160,10 @@ impl Zugluft {
             .border_1()
             .border_color(rgb(BORDER))
             .shadow(subtle_shadow())
-            .child(self.nav_item(AppView::Controls, cx))
-            .child(self.nav_item(AppView::Sensors, cx))
+            .child(self.nav_item(AppView::Dashboard, cx))
+            .child(self.nav_item(AppView::Curves, cx))
+            .child(self.nav_item(AppView::Fans, cx))
+            .child(self.nav_item(AppView::Telemetry, cx))
             .child(div().flex_1())
             .child(self.nav_item(AppView::Settings, cx))
     }

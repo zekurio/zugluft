@@ -6,7 +6,6 @@ struct TriggerFields {
     threshold: f32,
     before: f32,
     after: f32,
-    ramp: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -35,11 +34,10 @@ impl Zugluft {
         let function_details = self.render_curve_function_details(def, index, cx);
 
         div()
-            .w(px(220.))
-            .flex_none()
+            .w_full()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3()
             .child(
                 div()
                     .w_full()
@@ -47,15 +45,18 @@ impl Zugluft {
                     .flex_col()
                     .gap_1()
                     .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Kind"))
-                    .child(kind_tabs),
+                    .child(kind_tabs)
+                    .child(self.render_curve_kind_controls(def, index, cx)),
             )
-            .child(self.render_curve_kind_controls(def, index, cx))
             .child(
                 div()
                     .w_full()
+                    .pt_2()
+                    .border_t_1()
+                    .border_color(rgb(BORDER))
                     .flex()
                     .flex_col()
-                    .gap_1()
+                    .gap_2()
                     .child(
                         div()
                             .flex()
@@ -64,9 +65,9 @@ impl Zugluft {
                             .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Function"))
                             .child(self.function_help_button(index)),
                     )
-                    .child(function_tabs),
+                    .child(function_tabs)
+                    .child(function_details),
             )
-            .child(function_details)
             .child(self.render_curve_window_controls(def, index, cx))
     }
 
@@ -303,7 +304,6 @@ impl Zugluft {
                 threshold,
                 before,
                 after,
-                ramp,
             } => self.render_trigger_curve_controls(
                 def,
                 index,
@@ -311,7 +311,6 @@ impl Zugluft {
                     threshold,
                     before,
                     after,
-                    ramp,
                 },
                 cx,
             ),
@@ -334,8 +333,6 @@ impl Zugluft {
         let id_before_plus = def.id.clone();
         let id_after_minus = def.id.clone();
         let id_after_plus = def.id.clone();
-        let id_ramp_minus = def.id.clone();
-        let id_ramp_plus = def.id.clone();
 
         div()
             .flex()
@@ -402,22 +399,6 @@ impl Zugluft {
                 },
                 move |this, cx| {
                     this.adjust_curve_kind(&id_after_plus, CurveKindField::TriggerAfter, 5.0, cx)
-                },
-            ))
-            .child(self.curve_function_stepper(
-                CurveStepper {
-                    minus_id: ("curve-trigger-ramp-minus", index),
-                    plus_id: ("curve-trigger-ramp-plus", index),
-                    label: "Ramp",
-                    value: fmt_setting(fields.ramp),
-                    unit: "C",
-                },
-                cx,
-                move |this, cx| {
-                    this.adjust_curve_kind(&id_ramp_minus, CurveKindField::TriggerRamp, -1.0, cx)
-                },
-                move |this, cx| {
-                    this.adjust_curve_kind(&id_ramp_plus, CurveKindField::TriggerRamp, 1.0, cx)
                 },
             ))
     }
@@ -588,7 +569,9 @@ impl Zugluft {
         let duty_max_plus = def.id.clone();
 
         div()
-            .mt_2()
+            .pt_2()
+            .border_t_1()
+            .border_color(rgb(BORDER))
             .flex()
             .flex_col()
             .gap_2()
@@ -681,7 +664,7 @@ impl Zugluft {
                 div()
                     .flex()
                     .items_center()
-                    .h(px(24.))
+                    .h(px(28.))
                     .rounded_md()
                     .bg(rgb(TRACK))
                     .border_1()
@@ -715,7 +698,7 @@ impl Zugluft {
         div().child(
             div()
                 .id(id)
-                .w(px(24.))
+                .w(px(28.))
                 .h_full()
                 .flex()
                 .items_center()

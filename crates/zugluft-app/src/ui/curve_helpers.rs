@@ -10,13 +10,9 @@ pub(super) fn graph_kind_from(kind: &CurveKind) -> CurveKind {
             threshold,
             before,
             after,
-            ramp,
-        } => {
-            let end = threshold + ramp.max(10.0);
-            CurveKind::Graph {
-                points: vec![(threshold, before), (end.min(150.0), after)],
-            }
-        }
+        } => CurveKind::Graph {
+            points: vec![(threshold, before), ((threshold + 0.5).min(150.0), after)],
+        },
     }
     .sanitized()
 }
@@ -27,12 +23,10 @@ pub(super) fn trigger_kind_from(kind: &CurveKind) -> CurveKind {
             threshold,
             before,
             after,
-            ramp,
         } => CurveKind::Trigger {
             threshold,
             before,
             after,
-            ramp,
         },
         CurveKind::Graph { points } => {
             let threshold = points
@@ -45,14 +39,12 @@ pub(super) fn trigger_kind_from(kind: &CurveKind) -> CurveKind {
                 threshold,
                 before,
                 after,
-                ramp: 0.0,
             }
         }
         CurveKind::Linear { start, end } => CurveKind::Trigger {
             threshold: start.0,
             before: start.1,
             after: end.1,
-            ramp: (end.0 - start.0).max(0.0),
         },
     }
     .sanitized()
@@ -70,10 +62,9 @@ pub(super) fn linear_kind_from(kind: &CurveKind) -> CurveKind {
             threshold,
             before,
             after,
-            ramp,
         } => CurveKind::Linear {
             start: (threshold, before),
-            end: (threshold + ramp.max(10.0), after),
+            end: ((threshold + 10.0).min(150.0), after),
         },
     }
     .sanitized()

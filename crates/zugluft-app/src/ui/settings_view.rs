@@ -76,6 +76,29 @@ impl Zugluft {
                     ]))),
             );
 
+        let hardware = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(section_title("Hardware"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(row_label("Fans"))
+                    .child(self.icon_button(
+                        "calibrate-fans-settings",
+                        "icons/fan.svg",
+                        "Calibrate",
+                        cx,
+                        |this, cx| {
+                            let _ = this.tx.send(Request::Calibrate);
+                            cx.notify();
+                        },
+                    )),
+            );
+
         // Visibility: every device/category/channel with its eye toggle.
         // Channels with no reading only show up while hidden, so they can
         // still be restored.
@@ -97,7 +120,7 @@ impl Zugluft {
                     ("vis-fan", ci * 64 + fi),
                     chip_name.clone(),
                     key,
-                    self.names.fan_label(&chip_name, fi),
+                    format!("Fan: {}", self.names.fan_label(&chip_name, fi)),
                     hidden,
                     cx,
                 ));
@@ -113,7 +136,7 @@ impl Zugluft {
                     ("vis-temp", ci * 64 + ti),
                     chip_name.clone(),
                     key,
-                    self.temp_label(&chip_name, ti),
+                    format!("Sensor: {}", self.temp_label(&chip_name, ti)),
                     hidden,
                     cx,
                 ));
@@ -129,7 +152,7 @@ impl Zugluft {
                     ("vis-power", ci * 64 + pi),
                     chip_name.clone(),
                     key,
-                    self.power_label(&chip_name, pi),
+                    format!("Power: {}", self.power_label(&chip_name, pi)),
                     hidden,
                     cx,
                 ));
@@ -144,7 +167,7 @@ impl Zugluft {
                         div()
                             .text_sm()
                             .text_color(rgb(TEXT_DIM))
-                            .child(chip_name.clone()),
+                            .child(self.names.device_label(&chip_name)),
                     )
                     .child(self.visibility_device_tag(
                         ("vis-device", ci),
@@ -191,7 +214,7 @@ impl Zugluft {
                                     ("vis-cat-temps", ci),
                                     chip_name.clone(),
                                     HiddenCategory::Temperatures,
-                                    "Temperatures",
+                                    "Sensors",
                                     temps_hidden,
                                     cx,
                                 ),
@@ -242,6 +265,7 @@ impl Zugluft {
                 .gap_4()
                 .p_3()
                 .child(units)
+                .child(hardware)
                 .child(visibility),
         )
     }
@@ -313,21 +337,11 @@ impl Zugluft {
             ),
         };
         let target = target.clone();
-        let panel = div()
-            .w(px(380.))
-            .flex()
-            .flex_col()
+        let panel = self
+            .modal_panel("confirm-delete-dialog", px(380.), cx)
+            .overflow_y_scroll()
             .gap_3()
             .p_4()
-            .rounded_lg()
-            .bg(rgb(PANEL))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .shadow(floating_shadow())
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
-            )
             .child(
                 div()
                     .font_weight(FontWeight::MEDIUM)
@@ -373,22 +387,9 @@ impl Zugluft {
                     ),
             );
 
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(hsla(0.0, 0.0, 0.0, 0.55))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        this.confirm_delete = None;
-                        cx.notify();
-                    }),
-                )
-                .child(panel),
-        )
+        Some(self.modal_backdrop(panel, cx, |this, cx| {
+            this.confirm_delete = None;
+            cx.notify();
+        }))
     }
 }
