@@ -3,6 +3,11 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')]
     [string] $Version,
 
+    [ValidatePattern('^[A-Za-z0-9_-]+$')]
+    [string] $Profile = "release",
+
+    [switch] $CargoTimings,
+
     [string] $OutDir = "dist"
 )
 
@@ -77,9 +82,9 @@ $PayloadName = "zugluft-v$Version-windows-x64"
 $PayloadDir = Join-Path $DistRoot $PayloadName
 $InstallerName = "zugluft-setup-v$Version-windows-x64.exe"
 $InstallerPath = Join-Path $DistRoot $InstallerName
-$ReleaseDir = Join-Path $Root "target\release"
+$ReleaseDir = Join-Path $Root "target\$Profile"
 $ReleaseBuildDir = Join-Path $ReleaseDir "build"
-$BridgePublishDir = Join-Path $Root "target\lhm-bridge\release\publish"
+$BridgePublishDir = Join-Path $Root "target\lhm-bridge\$Profile\publish"
 $NsisScript = Join-Path $Root "installer\zugluft.nsi"
 $IconPath = Join-Path $Root "crates\zugluft-app\assets\app-icon.ico"
 
@@ -92,7 +97,11 @@ New-Item -ItemType Directory -Force -Path $DistRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
 
 $env:ZUGLUFT_REQUIRE_LHM_BRIDGE = "1"
-Invoke-Native cargo build --release --locked
+$cargoArgs = @("build", "--locked", "--profile", $Profile)
+if ($CargoTimings) {
+    $cargoArgs += "--timings"
+}
+Invoke-Native cargo @cargoArgs
 
 foreach ($file in @("zugluft.exe", "zugluft-service.exe", "zugluftctl.exe")) {
     $source = Join-Path $ReleaseDir $file

@@ -70,6 +70,7 @@ pub struct Zugluft {
     names: NamesConfig,
     names_mtime: Option<std::time::SystemTime>,
     refresh_ticks: u32,
+    toast: Option<Toast>,
     template_written: bool,
     /// Slider track screen bounds, captured during paint.
     track_bounds: Rc<RefCell<HashMap<FanKey, Bounds<Pixels>>>>,
@@ -98,6 +99,9 @@ pub struct Zugluft {
     curve_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
     /// Optimistic fan→curve assignments until the service echoes them.
     pending_assign: HashMap<FanKey, Option<String>>,
+    /// Last curve selected per fan in this app session; also persisted in
+    /// config.toml so curve mode resumes the same pick after restart.
+    last_curve: HashMap<FanKey, String>,
     /// Inline rename in the sensor panel; keyboard input goes here.
     renaming: Option<Rename>,
     /// Sensor list filter (Sensors page header).
@@ -111,7 +115,6 @@ pub struct Zugluft {
     /// Optimistic settings per fan, held until the service echoes them.
     pending_settings: HashMap<FanKey, FanSettings>,
     selected_curve: Option<String>,
-    selected_fan: Option<FanKey>,
     /// Keyboard focus anchor for the rename editor.
     focus_handle: FocusHandle,
     /// Whether the service has the current custom sensor definitions;
@@ -157,6 +160,7 @@ impl Zugluft {
             names,
             names_mtime: config::mtime(),
             refresh_ticks: 0,
+            toast: None,
             template_written: false,
             track_bounds: Rc::default(),
             graph_bounds: Rc::default(),
@@ -173,12 +177,12 @@ impl Zugluft {
             curve_drag: None,
             curve_bounds: Rc::default(),
             pending_assign: HashMap::new(),
+            last_curve: HashMap::new(),
             renaming: None,
             expanded: HashSet::new(),
             editing: None,
             pending_settings: HashMap::new(),
             selected_curve: None,
-            selected_fan: None,
             focus_handle: cx.focus_handle(),
             customs_synced: false,
             window_observer: false,
@@ -226,6 +230,12 @@ impl Zugluft {
         // Hot-reload names and custom sensors when config.toml changes
         // (checked ~every 2 s).
         self.refresh_ticks = self.refresh_ticks.wrapping_add(1);
+        if self.toast.as_ref().is_some_and(|toast| {
+            self.refresh_ticks.wrapping_sub(toast.shown_tick) >= dashboard::TOAST_TICKS
+        }) {
+            self.toast = None;
+            cx.notify();
+        }
         if self.refresh_ticks.is_multiple_of(20) {
             let mtime = config::mtime();
             if mtime != self.names_mtime {
@@ -483,6 +493,7 @@ impl Render for Zugluft {
         // dialog), below the deferred popups; the popup itself stops the
         // mouse down from reaching this.
         let dropdown_overlay = self.render_dropdown_overlay(cx);
+        let toast = self.render_toast();
 
         div()
             .size_full()
@@ -525,5 +536,6 @@ impl Render for Zugluft {
             .children(confirm)
             .children(rename_modal)
             .children(dropdown_overlay)
+            .children(toast)
     }
 }

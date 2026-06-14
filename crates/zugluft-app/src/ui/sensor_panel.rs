@@ -13,11 +13,11 @@ impl Zugluft {
         // Config keys for this line's persisted visibility / appearance.
         let channel = channel_key(key);
         let default = default_shown(key.kind);
-        let pin_item = self.dashboard_sensor_item(sensor);
         div().child(
             div()
                 .id(("sensor-toggle", sensor_id(key)))
                 .group(group.clone())
+                .relative()
                 .flex()
                 .items_center()
                 .gap_2()
@@ -71,109 +71,199 @@ impl Zugluft {
                         .text_color(rgb(if sensor.enabled { TEXT } else { TEXT_DIM }))
                         .child(sensor.label.clone()),
                 )
-                .child(self.dashboard_pin_button(("sensor-pin", sensor_id(key)), pin_item, cx))
-                .child(
-                    div()
-                        .id(("sensor-rename", sensor_id(key)))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener({
-                            let chip = sensor.chip_name.clone();
-                            let channel = channel.clone();
-                            let custom_id = sensor.chip_name.clone();
-                            move |this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                if key.kind == SensorKind::Custom {
-                                    this.open_custom_dialog(custom_id.clone(), cx);
-                                } else {
-                                    this.begin_rename(
-                                        key,
-                                        label.clone(),
-                                        Some((chip.clone(), channel.clone())),
-                                        window,
-                                        cx,
-                                    );
-                                }
-                            }
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/pencil.svg")
-                                .w(px(12.))
-                                .h(px(12.))
-                                // svgs paint with their own text color (no
-                                // inheritance): invisible until the row is
-                                // hovered, bright under the cursor.
-                                .text_color(gpui::transparent_black())
-                                .group_hover(group.clone(), |s| s.text_color(rgb(TEXT_DIM)))
-                                .hover(|s| s.text_color(rgb(TEXT))),
-                        ),
-                )
-                // Hardware channels can be hidden; derived sensors are
-                // config entries, so they get deleted instead.
-                .children(
-                    matches!(
-                        key.kind,
-                        SensorKind::Temperature | SensorKind::FanRpm | SensorKind::Power
-                    )
-                    .then(|| {
-                        let chip_name = sensor.chip_name.clone();
-                        let prefix = match key.kind {
-                            SensorKind::Temperature => "temp",
-                            SensorKind::Power => "power",
-                            _ => "fan",
-                        };
-                        div()
-                            .id(("sensor-hide", sensor_id(key)))
-                            .flex_none()
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                this.set_channel_hidden(
-                                    &chip_name.clone(),
-                                    &format!("{prefix}{}", key.index + 1),
-                                    true,
-                                    cx,
-                                );
-                            }))
-                            .child(
-                                svg()
-                                    .path("icons/eye-off.svg")
-                                    .w(px(12.))
-                                    .h(px(12.))
-                                    .text_color(gpui::transparent_black())
-                                    .group_hover(group.clone(), |s| s.text_color(rgb(TEXT_DIM)))
-                                    .hover(|s| s.text_color(rgb(TEXT))),
-                            )
-                    }),
-                )
-                .children((key.kind == SensorKind::Custom).then(|| {
-                    let custom_id = sensor.chip_name.clone();
-                    div()
-                        .id(("sensor-del", sensor_id(key)))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.confirm_delete = Some(ConfirmDelete::Custom(custom_id.clone()));
-                            cx.notify();
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/trash.svg")
-                                .w(px(12.))
-                                .h(px(12.))
-                                .text_color(gpui::transparent_black())
-                                .group_hover(group, |s| s.text_color(rgb(TEXT_DIM)))
-                                .hover(|s| s.text_color(rgb(ERROR))),
-                        )
-                }))
+                .child(self.sensor_action_menu(sensor, cx))
                 .child(
                     div()
                         .text_sm()
                         .font_family(FONT_MONO)
                         .text_color(rgb(if sensor.enabled { TEXT } else { TEXT_DIM }))
                         .child(sensor.unit.format_value(sensor.value)),
+                ),
+        )
+    }
+
+    pub(super) fn sensor_action_menu(&self, sensor: &SensorReading, cx: &mut Context<Self>) -> Div {
+        let key = sensor.key;
+        let id = sensor_id(key);
+        let dropdown = Dropdown::SensorActions { sensor: id };
+        let open = self.open_dropdown.as_ref() == Some(&dropdown);
+        let dashboard_item = self.dashboard_sensor_item(sensor);
+        let pinned = self.names.is_dashboard_pinned(&dashboard_item);
+        let chip = sensor.chip_name.clone();
+        let channel = channel_key(key);
+        let label = sensor.label.clone();
+        let is_hardware = matches!(
+            key.kind,
+            SensorKind::Temperature | SensorKind::FanRpm | SensorKind::Power
+        );
+
+        let menu = open.then(|| {
+            let pin_item = dashboard_item.clone();
+            let edit_chip = chip.clone();
+            let edit_channel = channel.clone();
+            let edit_label = label.clone();
+            let custom_id = chip.clone();
+            let hide_chip = chip.clone();
+            let hide_channel = channel.clone();
+            let delete_id = chip.clone();
+
+            let mut popup = div()
+                .absolute()
+                .top(px(24.))
+                .right(px(0.))
+                .w(Self::ACTION_MENU_WIDTH)
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .p_1()
+                .rounded_lg()
+                .bg(rgb(BG))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .shadow(floating_shadow())
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                )
+                .child(
+                    div()
+                        .id(("sensor-menu-pin", id))
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .px_1p5()
+                        .py_1()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(FILL_HOVER)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.open_dropdown = None;
+                            this.set_dashboard_pinned(pin_item.clone(), !pinned, cx);
+                        }))
+                        .child(self.menu_icon(
+                            "icons/pin.svg",
+                            if pinned { FILL_MANUAL } else { TEXT_DIM },
+                        ))
+                        .child(self.menu_label(
+                            if pinned {
+                                "Unpin from dashboard"
+                            } else {
+                                "Pin to dashboard"
+                            },
+                            TEXT,
+                        )),
+                )
+                .child(
+                    div()
+                        .id(("sensor-menu-edit", id))
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .px_1p5()
+                        .py_1()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(FILL_HOVER)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.open_dropdown = None;
+                            if key.kind == SensorKind::Custom {
+                                this.open_custom_dialog(custom_id.clone(), cx);
+                            } else {
+                                this.begin_rename(
+                                    key,
+                                    edit_label.clone(),
+                                    Some((edit_chip.clone(), edit_channel.clone())),
+                                    window,
+                                    cx,
+                                );
+                            }
+                        }))
+                        .child(self.menu_icon("icons/pencil.svg", TEXT_DIM))
+                        .child(self.menu_label("Edit", TEXT)),
+                );
+
+            if is_hardware {
+                popup = popup.child(
+                    div()
+                        .id(("sensor-menu-hide", id))
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .px_1p5()
+                        .py_1()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(FILL_HOVER)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.open_dropdown = None;
+                            this.set_channel_hidden(
+                                &hide_chip.clone(),
+                                &hide_channel.clone(),
+                                true,
+                                cx,
+                            );
+                        }))
+                        .child(self.menu_icon("icons/eye-off.svg", TEXT_DIM))
+                        .child(self.menu_label("Hide", TEXT)),
+                );
+            } else {
+                popup = popup.child(
+                    div()
+                        .id(("sensor-menu-delete", id))
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .px_1p5()
+                        .py_1()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(FILL_HOVER)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.open_dropdown = None;
+                            this.confirm_delete = Some(ConfirmDelete::Custom(delete_id.clone()));
+                            cx.notify();
+                        }))
+                        .child(self.menu_icon("icons/trash.svg", ERROR))
+                        .child(self.menu_label("Delete", ERROR)),
+                );
+            }
+
+            deferred(popup)
+        });
+
+        div().relative().flex_none().children(menu).child(
+            div()
+                .id(("sensor-actions", id))
+                .w(px(20.))
+                .h(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .bg(rgb(if open { FILL_HOVER } else { TRACK }))
+                .border_1()
+                .border_color(rgb(if open { FILL_MANUAL } else { BORDER }))
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(FILL_HOVER)).text_color(rgb(TEXT)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_dropdown = if this.open_dropdown.as_ref() == Some(&dropdown) {
+                        None
+                    } else {
+                        Some(dropdown.clone())
+                    };
+                    cx.notify();
+                }))
+                .child(
+                    svg()
+                        .path("icons/more-vertical.svg")
+                        .w(px(13.))
+                        .h(px(13.))
+                        .text_color(rgb(TEXT_DIM)),
                 ),
         )
     }
@@ -452,7 +542,6 @@ impl Zugluft {
     ) -> Div {
         let page = match self.active_view {
             AppView::Dashboard => self.render_controls(chips, snapshots, notes, customs, cx),
-            AppView::Curves => self.render_curves_page(chips, snapshots, customs, cx),
             AppView::Fans => self.render_fans_page(chips, snapshots, cx),
             AppView::Telemetry => self.render_sensors(chips, snapshots, customs, cx),
             AppView::Settings => self.render_settings(chips, snapshots, cx),

@@ -204,6 +204,10 @@ jobs:
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: windows-latest
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TERM_COLOR: always
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
     steps:
       - name: Checkout release source
@@ -211,17 +215,68 @@ jobs:
         with:
           ref: ${{ needs.preflight.outputs.ref }}
 
+      - id: dotnet
+        name: Detect hosted .NET SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+          if (-not $dotnet) {
+            "has_dotnet_8=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $sdks = & $dotnet.Source --list-sdks
+          if ($LASTEXITCODE -ne 0) {
+            "has_dotnet_8=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $sdks
+          $hasDotnet8 = [bool]($sdks | Where-Object { $_ -match '^8\.' })
+          "has_dotnet_8=$($hasDotnet8.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        if: steps.dotnet.outputs.has_dotnet_8 != 'true'
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+          shared-key: windows-release
+          cache-on-failure: true
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5
+        with:
+          path: .nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('crates/zugluft-hw/lhm-bridge/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Cache NSIS
+        uses: actions/cache@v5
+        with:
+          path: target/tools/nsis-3.11
+          key: nsis-3.11-${{ runner.os }}
+
+      - name: Stamp release version
+        shell: pwsh
+        run: ./scripts/stamp-release-version.ps1 -Version "${{ needs.preflight.outputs.version }}"
+
       - name: Build installer
         shell: pwsh
-        run: ./scripts/package-windows.ps1 -Version "${{ needs.preflight.outputs.version }}"
+        env:
+          RELEASE_CHANNEL: ${{ needs.preflight.outputs.release_channel }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          $profile = if ($env:RELEASE_CHANNEL -eq "nightly") { "release-fast" } else { "release" }
+          ./scripts/package-windows.ps1 -Version $env:VERSION -Profile $profile -CargoTimings
 
       - name: Validate installer asset
         shell: pwsh
@@ -232,6 +287,14 @@ jobs:
           if (-not $installer) {
             throw "No Windows installer was produced in dist."
           }
+
+      - name: Upload Cargo timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-cargo-timings
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
 
       - name: Upload Windows release assets
         uses: actions/upload-artifact@v7

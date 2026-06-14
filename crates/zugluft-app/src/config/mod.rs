@@ -166,15 +166,6 @@ impl DashboardItem {
         }
     }
 
-    pub fn curve(id: impl Into<String>) -> Self {
-        Self {
-            kind: DashboardItemKind::Curve,
-            chip: None,
-            channel: None,
-            id: Some(id.into()),
-        }
-    }
-
     pub fn kind(&self) -> DashboardItemKind {
         self.kind
     }
@@ -251,6 +242,12 @@ pub struct NamesConfig {
     /// default (everything but fans is shown). Keyed like `graph_color`.
     #[serde(default)]
     graph_shown: HashMap<String, HashMap<String, bool>>,
+    /// Last curve picked for a fan, keyed by chip name then `fanN`. This is
+    /// separate from the service's active assignment so auto/manual can
+    /// temporarily release a fan while curve mode still resumes the same
+    /// curve later.
+    #[serde(default)]
+    fan_curve: HashMap<String, HashMap<String, String>>,
 }
 
 impl NamesConfig {
@@ -355,6 +352,15 @@ impl NamesConfig {
     /// kind's default".
     pub fn graph_shown(&self, chip: &str, key: &str) -> Option<bool> {
         self.graph_shown.get(chip)?.get(key).copied()
+    }
+
+    /// Last curve selected for one fan, if the user has picked one before.
+    pub fn fan_curve(&self, chip: &str, index: usize) -> Option<String> {
+        self.fan_curve
+            .get(chip)?
+            .get(&format!("fan{}", index + 1))
+            .cloned()
+            .filter(|id| !id.trim().is_empty())
     }
 
     fn lookup(&self, chip: &str, key: &str) -> Option<String> {

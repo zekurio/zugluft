@@ -30,6 +30,7 @@ impl Zugluft {
         self.pending.insert(key, percent);
         // A manual target takes the fan off its curve (the service does the
         // same); reflect that immediately.
+        self.remember_current_curve(key);
         self.pending_assign.insert(key, None);
         self.send_duty(key, Some((percent * 255.0 / 100.0).round() as u8));
         cx.notify();
@@ -79,6 +80,7 @@ impl Zugluft {
     }
 
     pub(super) fn set_auto(&mut self, key: FanKey, cx: &mut Context<Self>) {
+        self.remember_current_curve(key);
         self.pending.remove(&key);
         self.pending_assign.insert(key, None);
         self.send_duty(key, None);

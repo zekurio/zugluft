@@ -9,4 +9,4 @@ path = "src/main.rs"
 
 [dependencies]
 zugluft-hw.workspace = true
-zugluft-ipc = { version = "0.1.0", path = "../zugluft-ipc" }
+zugluft-ipc = { version = "0.2.0", path = "../zugluft-ipc" }

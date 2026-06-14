@@ -40,6 +40,8 @@ You can also run **Release** manually with:
 
 Nightlies run automatically every day at `03:17 UTC`. The workflow skips the
 scheduled run when `main` has not changed since the last nightly tag.
+Nightly installers use the faster `release-fast` Cargo profile; stable
+installers use the fully optimized `release` profile.
 
 To cut a nightly manually, run **Release** with:
 

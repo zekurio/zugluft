@@ -132,13 +132,7 @@ impl Zugluft {
                 div()
                     .flex()
                     .gap_2()
-                    .child(
-                        div()
-                            .w(px(52.))
-                            .text_xs()
-                            .text_color(rgb(TEXT_DIM))
-                            .child(left_axis.unit.label()),
-                    )
+                    .child(div().w(px(52.)).flex_none())
                     .child(
                         div()
                             .flex_1()
@@ -157,14 +151,7 @@ impl Zugluft {
                                     .child(label)
                             })),
                     )
-                    .children(right_axes.iter().map(|axis| {
-                        div()
-                            .w(px(70.))
-                            .text_right()
-                            .text_xs()
-                            .text_color(rgb(TEXT_DIM))
-                            .child(axis.unit.label())
-                    })),
+                    .children(right_axes.iter().map(|_| div().w(px(70.)).flex_none())),
             )
     }
 }

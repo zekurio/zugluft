@@ -26,7 +26,7 @@ impl Zugluft {
         };
         let in_curve = self.fan_curve(key, fan).is_some();
 
-        // Header: name + pencil (rename opens a modal); status badge right.
+        // Header: name, status badge, and a compact action menu.
         let rename_key = SensorKey {
             kind: SensorKind::FanRpm,
             chip: key.0,
@@ -46,11 +46,7 @@ impl Zugluft {
                     .text_color(rgb(TEXT_DIM))
                     .child("uncalibrated")
             };
-            let group: SharedString = format!("fan-card-{fan_id}").into();
-            let label = name.clone();
-            let pin_item = self.dashboard_fan_item(chip_name, key.1);
             div()
-                .group(group.clone())
                 .flex()
                 .items_center()
                 .gap_2()
@@ -61,63 +57,9 @@ impl Zugluft {
                         .truncate()
                         .child(name.clone()),
                 )
-                .child(self.dashboard_pin_button(("fan-pin", fan_id), pin_item, cx))
-                .child(
-                    div()
-                        .id(("fan-rename", fan_id))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener({
-                            let chip = chip_name.to_string();
-                            let channel = channel_key(rename_key);
-                            move |this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                this.begin_rename(
-                                    rename_key,
-                                    label.clone(),
-                                    Some((chip.clone(), channel.clone())),
-                                    window,
-                                    cx,
-                                );
-                            }
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/pencil.svg")
-                                .w(px(12.))
-                                .h(px(12.))
-                                .text_color(gpui::transparent_black())
-                                .group_hover(group.clone(), |s| s.text_color(rgb(TEXT_DIM)))
-                                .hover(|s| s.text_color(rgb(TEXT))),
-                        ),
-                )
-                .child({
-                    let chip_name = chip_name.to_string();
-                    div()
-                        .id(("fan-hide", fan_id))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.set_channel_hidden(
-                                &chip_name.clone(),
-                                &format!("fan{}", key.1 + 1),
-                                true,
-                                cx,
-                            );
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/eye-off.svg")
-                                .w(px(12.))
-                                .h(px(12.))
-                                .text_color(gpui::transparent_black())
-                                .group_hover(group, |s| s.text_color(rgb(TEXT_DIM)))
-                                .hover(|s| s.text_color(rgb(TEXT))),
-                        )
-                })
                 .child(div().flex_1())
                 .child(badge)
+                .child(self.fan_action_menu(key, chip_name, name.clone(), cx))
         };
 
         // The speed readout follows the fan-unit setting (U/min, or % of
@@ -338,5 +280,165 @@ impl Zugluft {
             card = card.child(self.render_tuning(key, fan, cx));
         }
         card
+    }
+
+    pub(super) fn fan_action_menu(
+        &self,
+        key: FanKey,
+        chip_name: &str,
+        label: String,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let fan_id = key.0 * 64 + key.1;
+        let dropdown = Dropdown::FanActions { fan: key };
+        let open = self.open_dropdown.as_ref() == Some(&dropdown);
+        let pin_item = self.dashboard_fan_item(chip_name, key.1);
+        let pinned = self.names.is_dashboard_pinned(&pin_item);
+        let chip = chip_name.to_string();
+        let rename_key = SensorKey {
+            kind: SensorKind::FanRpm,
+            chip: key.0,
+            index: key.1,
+        };
+        let channel = channel_key(rename_key);
+
+        let menu = open.then(|| {
+            let pin_item = pin_item.clone();
+            let edit_chip = chip.clone();
+            let edit_channel = channel.clone();
+            let edit_label = label.clone();
+            let hide_chip = chip.clone();
+
+            deferred(
+                div()
+                    .absolute()
+                    .top(px(24.))
+                    .right(px(0.))
+                    .w(Self::ACTION_MENU_WIDTH)
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .p_1()
+                    .rounded_lg()
+                    .bg(rgb(BG))
+                    .border_1()
+                    .border_color(rgb(BORDER))
+                    .shadow(floating_shadow())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                    )
+                    .child(
+                        div()
+                            .id(("fan-menu-pin", fan_id))
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .px_1p5()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.open_dropdown = None;
+                                this.set_dashboard_pinned(pin_item.clone(), !pinned, cx);
+                            }))
+                            .child(self.menu_icon(
+                                "icons/pin.svg",
+                                if pinned { FILL_MANUAL } else { TEXT_DIM },
+                            ))
+                            .child(self.menu_label(
+                                if pinned {
+                                    "Unpin from dashboard"
+                                } else {
+                                    "Pin to dashboard"
+                                },
+                                TEXT,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .id(("fan-menu-edit", fan_id))
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .px_1p5()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.open_dropdown = None;
+                                this.begin_rename(
+                                    rename_key,
+                                    edit_label.clone(),
+                                    Some((edit_chip.clone(), edit_channel.clone())),
+                                    window,
+                                    cx,
+                                );
+                            }))
+                            .child(self.menu_icon("icons/pencil.svg", TEXT_DIM))
+                            .child(self.menu_label("Edit", TEXT)),
+                    )
+                    .child(
+                        div()
+                            .id(("fan-menu-hide", fan_id))
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .px_1p5()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.open_dropdown = None;
+                                this.set_channel_hidden(
+                                    &hide_chip.clone(),
+                                    &format!("fan{}", key.1 + 1),
+                                    true,
+                                    cx,
+                                );
+                            }))
+                            .child(self.menu_icon("icons/eye-off.svg", TEXT_DIM))
+                            .child(self.menu_label("Hide", TEXT)),
+                    ),
+            )
+        });
+
+        div().relative().flex_none().children(menu).child(
+            div()
+                .id(("fan-actions", fan_id))
+                .w(px(20.))
+                .h(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .bg(rgb(if open { FILL_HOVER } else { TRACK }))
+                .border_1()
+                .border_color(rgb(if open { FILL_MANUAL } else { BORDER }))
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(FILL_HOVER)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_dropdown = if this.open_dropdown.as_ref() == Some(&dropdown) {
+                        None
+                    } else {
+                        Some(dropdown.clone())
+                    };
+                    cx.notify();
+                }))
+                .child(
+                    svg()
+                        .path("icons/more-vertical.svg")
+                        .w(px(13.))
+                        .h(px(13.))
+                        .text_color(rgb(TEXT_DIM)),
+                ),
+        )
     }
 }

@@ -23,66 +23,20 @@ impl Zugluft {
             .flex_none()
             .rounded_full()
             .bg(rgb(color));
-        let header: Div = {
-            let group: SharedString = format!("curve-card-{index}").into();
-            let pin_item = self.dashboard_curve_item(def);
-            let edit_id = def.id.clone();
-            let delete_id = def.id.clone();
-            div()
-                .group(group.clone())
-                .flex()
-                .items_center()
-                .gap_2()
-                .h(px(22.))
-                .child(dot)
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .truncate()
-                        .child(def.name.clone()),
-                )
-                .child(
-                    div()
-                        .id(("curve-edit", index))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.open_curve_dialog(edit_id.clone(), cx);
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/pencil.svg")
-                                .w(px(12.))
-                                .h(px(12.))
-                                .text_color(gpui::transparent_black())
-                                .group_hover(group, |s| s.text_color(rgb(TEXT_DIM)))
-                                .hover(|s| s.text_color(rgb(TEXT))),
-                        ),
-                )
-                .child(div().flex_1())
-                .child(self.dashboard_pin_button(("curve-pin", index), pin_item, cx))
-                .child(
-                    div()
-                        .id(("curve-delete", index))
-                        .flex_none()
-                        .px_1()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.confirm_delete = Some(ConfirmDelete::Curve(delete_id.clone()));
-                            cx.notify();
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/trash.svg")
-                                .w(px(13.))
-                                .h(px(13.))
-                                .text_color(rgb(TEXT_DIM))
-                                .hover(|s| s.text_color(rgb(ERROR))),
-                        ),
-                )
-        };
+        let header: Div = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .h(px(22.))
+            .child(dot)
+            .child(
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .truncate()
+                    .child(def.name.clone()),
+            )
+            .child(div().flex_1())
+            .child(self.curve_action_menu(index, def, cx));
 
         let data = CurveEditorData {
             kind: def.kind.clone(),
@@ -167,6 +121,116 @@ impl Zugluft {
             .child(footer)
     }
 
+    pub(super) fn curve_action_menu(
+        &self,
+        index: usize,
+        def: &CurveDef,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let dropdown = Dropdown::CurveActions {
+            curve: def.id.clone(),
+        };
+        let open = self.open_dropdown.as_ref() == Some(&dropdown);
+        let curve_id = def.id.clone();
+
+        let menu = open.then(|| {
+            let edit_id = curve_id.clone();
+            let delete_id = curve_id.clone();
+
+            deferred(
+                div()
+                    .absolute()
+                    .top(px(24.))
+                    .right(px(0.))
+                    .w(Self::ACTION_MENU_WIDTH)
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .p_1()
+                    .rounded_lg()
+                    .bg(rgb(BG))
+                    .border_1()
+                    .border_color(rgb(BORDER))
+                    .shadow(floating_shadow())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                    )
+                    .child(
+                        div()
+                            .id(("curve-menu-edit", index))
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .px_1p5()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.open_dropdown = None;
+                                this.open_curve_dialog(edit_id.clone(), cx);
+                            }))
+                            .child(self.menu_icon("icons/pencil.svg", TEXT_DIM))
+                            .child(self.menu_label("Edit", TEXT)),
+                    )
+                    .child(
+                        div()
+                            .id(("curve-menu-delete", index))
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .px_1p5()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.open_dropdown = None;
+                                this.confirm_delete = Some(ConfirmDelete::Curve(delete_id.clone()));
+                                cx.notify();
+                            }))
+                            .child(self.menu_icon("icons/trash.svg", ERROR))
+                            .child(self.menu_label("Delete", ERROR)),
+                    ),
+            )
+        });
+
+        div().relative().flex_none().children(menu).child(
+            div()
+                .id(("curve-actions", index))
+                .w(px(20.))
+                .h(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .bg(rgb(if open { FILL_HOVER } else { TRACK }))
+                .border_1()
+                .border_color(rgb(if open { FILL_MANUAL } else { BORDER }))
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(FILL_HOVER)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_dropdown = if this.open_dropdown.as_ref() == Some(&dropdown) {
+                        None
+                    } else {
+                        Some(dropdown.clone())
+                    };
+                    cx.notify();
+                }))
+                .child(
+                    svg()
+                        .path("icons/more-vertical.svg")
+                        .w(px(13.))
+                        .h(px(13.))
+                        .text_color(rgb(TEXT_DIM)),
+                ),
+        )
+    }
+
     /// The modal curve editor for name, source, and curve parameters.
     pub(super) fn render_curve_dialog(
         &self,
@@ -198,7 +262,7 @@ impl Zugluft {
             .unwrap_or_else(|| TextEdit::new(def.name.clone()));
 
         let panel = self
-            .modal_panel("curve-dialog", px(440.), cx)
+            .modal_panel("curve-dialog", px(620.), cx)
             .overflow_y_scroll()
             .gap_3()
             .p_4()
@@ -271,6 +335,11 @@ impl Zugluft {
                                     .child(live_text),
                             ),
                     ),
+            )
+            .child(
+                div().h(px(230.)).flex_none().child(
+                    self.render_curve_editor_graph(index, &def, chips, snapshots, customs, cx),
+                ),
             )
             .child(
                 div()

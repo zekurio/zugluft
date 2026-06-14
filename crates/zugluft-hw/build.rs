@@ -1,5 +1,5 @@
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -16,6 +16,7 @@ fn main() {
     );
     println!("cargo:rerun-if-env-changed=ZUGLUFT_SKIP_LHM_BRIDGE_BUILD");
     println!("cargo:rerun-if-env-changed=ZUGLUFT_REQUIRE_LHM_BRIDGE");
+    println!("cargo:rerun-if-env-changed=NUGET_PACKAGES");
 
     if env::var_os("ZUGLUFT_SKIP_LHM_BRIDGE_BUILD").is_some() {
         println!("cargo:warning=skipping LibreHardwareMonitor bridge build by request");
@@ -38,7 +39,9 @@ fn main() {
     let bridge_target_dir = workspace.join("target").join("lhm-bridge").join(profile);
     let publish_dir = bridge_target_dir.join("publish");
     let intermediate_dir = bridge_target_dir.join("obj");
-    let nuget_dir = bridge_target_dir.join("nuget");
+    let nuget_dir = env::var_os("NUGET_PACKAGES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| bridge_target_dir.join("nuget"));
 
     let mut command = Command::new("dotnet");
     command

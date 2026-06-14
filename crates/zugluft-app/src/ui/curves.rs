@@ -16,6 +16,42 @@ impl Zugluft {
             .unwrap_or_else(|| fan.curve.clone())
     }
 
+    fn fan_chip_name(&self, key: FanKey) -> Option<String> {
+        let UiState::Service(ServiceState::Ready { chips, .. }) = &self.state else {
+            return None;
+        };
+        Some(chips.get(key.0)?.name.clone())
+    }
+
+    pub(super) fn remember_current_curve(&mut self, key: FanKey) {
+        let Some(fan) = self.fan_status(key) else {
+            return;
+        };
+        let Some(curve) = self.fan_curve(key, &fan) else {
+            return;
+        };
+        self.remember_fan_curve(key, curve);
+    }
+
+    fn remember_fan_curve(&mut self, key: FanKey, curve: String) {
+        self.last_curve.insert(key, curve.clone());
+        if let Some(chip) = self.fan_chip_name(key) {
+            config::save_fan_curve(&chip, key.1, &curve);
+        }
+    }
+
+    fn remembered_fan_curve(&self, key: FanKey) -> Option<String> {
+        let remembered = self.last_curve.get(&key).cloned().or_else(|| {
+            self.fan_chip_name(key)
+                .and_then(|chip| self.names.fan_curve(&chip, key.1))
+        })?;
+        self.names
+            .curves()
+            .iter()
+            .any(|def| def.id == remembered)
+            .then_some(remembered)
+    }
+
     /// A curve as currently displayed: the in-flight drag/name copy if there
     /// is one, otherwise the config's version.
     pub(super) fn curve_for_display(&self, id: &str) -> Option<CurveDef> {
@@ -368,6 +404,10 @@ impl Zugluft {
         curve: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        match &curve {
+            Some(curve) => self.remember_fan_curve(key, curve.clone()),
+            None => self.remember_current_curve(key),
+        }
         self.pending.remove(&key);
         self.pending_assign.insert(key, curve.clone());
         let _ = self.tx.send(Request::SetFanCurve {
@@ -378,11 +418,13 @@ impl Zugluft {
         cx.notify();
     }
 
-    /// The fan card's "curve" mode: assign the first curve; the picker
-    /// that replaces the slider switches between curves afterwards.
+    /// The fan card's "curve" mode: resume the last curve when possible;
+    /// the picker that replaces the slider switches between curves afterwards.
     pub(super) fn set_curve_mode(&mut self, key: FanKey, cx: &mut Context<Self>) {
-        if let Some(def) = self.names.curves().first() {
-            let id = def.id.clone();
+        let id = self
+            .remembered_fan_curve(key)
+            .or_else(|| self.names.curves().first().map(|def| def.id.clone()));
+        if let Some(id) = id {
             self.assign_fan(key, Some(id), cx);
         }
     }

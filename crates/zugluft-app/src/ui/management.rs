@@ -2,74 +2,15 @@ use super::curve_helpers::fmt_axis_value;
 use super::*;
 
 impl Zugluft {
-    pub(super) fn render_curves_page(
+    pub(super) fn render_curve_editor_graph(
         &self,
+        index: usize,
+        def: &CurveDef,
         chips: &[ChipInfo],
         snapshots: &[ChipSnapshot],
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
-        let curves = self.names.curves();
-        let selected = self
-            .selected_curve
-            .as_deref()
-            .and_then(|id| curves.iter().position(|def| def.id == id))
-            .or_else(|| (!curves.is_empty()).then_some(0));
-
-        div()
-            .flex_1()
-            .min_h(px(0.))
-            .flex()
-            .gap_2()
-            .p_2()
-            .child(self.render_curve_detail(selected, chips, snapshots, customs, cx))
-            .child(self.render_curve_list_panel(selected, chips, snapshots, customs, cx))
-    }
-
-    fn render_curve_detail(
-        &self,
-        selected: Option<usize>,
-        chips: &[ChipInfo],
-        snapshots: &[ChipSnapshot],
-        customs: &[CustomSensorValue],
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let Some((index, def)) = selected.and_then(|index| {
-            self.names
-                .curves()
-                .get(index)
-                .and_then(|def| self.curve_for_display(&def.id).map(|def| (index, def)))
-        }) else {
-            return div()
-                .flex_1()
-                .min_w(px(0.))
-                .h_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_lg()
-                .bg(rgb(PANEL))
-                .border_1()
-                .border_color(rgb(BORDER))
-                .shadow(floating_shadow())
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap_3()
-                        .child(div().text_lg().child("No curves"))
-                        .child(self.button("curve-empty-add", "New curve", cx, |this, cx| {
-                            this.add_curve_with_kind(
-                                CurveKind::Graph {
-                                    points: vec![(30.0, 20.0), (50.0, 40.0), (70.0, 100.0)],
-                                },
-                                cx,
-                            );
-                        })),
-                );
-        };
-
         let color = SENSOR_COLORS[index % SENSOR_COLORS.len()];
         let input = def.source.resolve(chips, snapshots, customs);
         let output = input.and_then(|input| def.kind.evaluate(input));
@@ -81,12 +22,8 @@ impl Zugluft {
             drag: self.curve_drag,
         };
         let curve_window = def.window.sanitized();
-        let live_text = match (input, output) {
-            (Some(input), Some(output)) => format!("{input:.1} C -> {output:.0} %"),
-            _ => "--".to_string(),
-        };
         let y_axis = div()
-            .w(px(44.))
+            .w(px(52.))
             .h_full()
             .flex()
             .flex_col()
@@ -157,9 +94,6 @@ impl Zugluft {
                             .h_full()
                             .relative()
                             .cursor_pointer()
-                            .rounded_lg()
-                            .overflow_hidden()
-                            .bg(rgb(GRID_CELL))
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -186,7 +120,7 @@ impl Zugluft {
                     .flex_none()
                     .flex()
                     .gap_2()
-                    .child(div().w(px(44.)))
+                    .child(div().w(px(52.)))
                     .child(
                         div()
                             .flex_1()
@@ -204,207 +138,7 @@ impl Zugluft {
                     ),
             );
 
-        div()
-            .flex_1()
-            .min_w(px(0.))
-            .h_full()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_3()
-            .rounded_lg()
-            .bg(rgb(PANEL))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .shadow(floating_shadow())
-            .child(graph_area)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1p5()
-                            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Source"))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family(FONT_MONO)
-                                    .child(self.source_label(&def.source)),
-                            ),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_family(FONT_MONO)
-                            .text_color(rgb(TEXT_DIM))
-                            .child(live_text),
-                    ),
-            )
-    }
-
-    fn render_curve_list_panel(
-        &self,
-        selected: Option<usize>,
-        chips: &[ChipInfo],
-        snapshots: &[ChipSnapshot],
-        customs: &[CustomSensorValue],
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
-        div()
-            .id("curves-panel")
-            .w(px(320.))
-            .h_full()
-            .min_h(px(0.))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .p_2()
-            .rounded_lg()
-            .bg(rgb(PANEL))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .shadow(floating_shadow())
-            .child(
-                div()
-                    .px_1()
-                    .py_1()
-                    .text_base()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Curves"),
-            )
-            .children(self.names.curves().iter().enumerate().map(|(index, def)| {
-                let input = def.source.resolve(chips, snapshots, customs);
-                let output = input.and_then(|input| def.kind.evaluate(input));
-                let live_text = match (input, output) {
-                    (Some(input), Some(output)) => format!("{input:.0} C -> {output:.0} %"),
-                    _ => "--".to_string(),
-                };
-                self.render_curve_list_row(index, def, selected == Some(index), live_text, cx)
-            }))
-            .child(
-                div()
-                    .pt_1p5()
-                    .mt_1()
-                    .border_t_1()
-                    .border_color(rgb(BORDER))
-                    .child(div().pt_1p5().child(self.button(
-                        "curve-page-add",
-                        "New curve",
-                        cx,
-                        |this, cx| {
-                            this.add_curve_with_kind(
-                                CurveKind::Graph {
-                                    points: vec![(30.0, 20.0), (50.0, 40.0), (70.0, 100.0)],
-                                },
-                                cx,
-                            );
-                        },
-                    ))),
-            )
-    }
-
-    fn render_curve_list_row(
-        &self,
-        index: usize,
-        def: &CurveDef,
-        selected: bool,
-        live_text: String,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let color = SENSOR_COLORS[index % SENSOR_COLORS.len()];
-        let pin_item = self.dashboard_curve_item(def);
-        let select_id = def.id.clone();
-        let edit_id = def.id.clone();
-        let delete_id = def.id.clone();
-
-        div().child(
-            div()
-                .id(("curve-list-row", index))
-                .flex()
-                .items_center()
-                .gap_2()
-                .px_2()
-                .py_1p5()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(if selected { FILL_MANUAL } else { BORDER }))
-                .bg(rgb(if selected { TRACK } else { PANEL }))
-                .cursor_pointer()
-                .hover(|s| s.bg(rgb(FILL_HOVER)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.selected_curve = Some(select_id.clone());
-                    cx.notify();
-                }))
-                .child(
-                    div()
-                        .w(px(8.))
-                        .h(px(8.))
-                        .flex_none()
-                        .rounded_full()
-                        .bg(rgb(color)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .flex()
-                        .flex_col()
-                        .gap_0p5()
-                        .child(div().text_sm().truncate().child(def.name.clone()))
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_family(FONT_MONO)
-                                .text_color(rgb(TEXT_DIM))
-                                .truncate()
-                                .child(live_text),
-                        ),
-                )
-                .child(self.dashboard_pin_button(("curve-list-pin", index), pin_item, cx))
-                .child(
-                    div()
-                        .id(("curve-list-edit", index))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.open_curve_dialog(edit_id.clone(), cx);
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/pencil.svg")
-                                .w(px(13.))
-                                .h(px(13.))
-                                .text_color(rgb(TEXT_DIM))
-                                .hover(|s| s.text_color(rgb(TEXT))),
-                        ),
-                )
-                .child(
-                    div()
-                        .id(("curve-list-delete", index))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.confirm_delete = Some(ConfirmDelete::Curve(delete_id.clone()));
-                            cx.notify();
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/trash.svg")
-                                .w(px(13.))
-                                .h(px(13.))
-                                .text_color(rgb(TEXT_DIM))
-                                .hover(|s| s.text_color(rgb(ERROR))),
-                        ),
-                ),
-        )
+        graph_area
     }
 
     pub(super) fn render_fans_page(
@@ -413,11 +147,6 @@ impl Zugluft {
         snapshots: &[ChipSnapshot],
         cx: &mut Context<Self>,
     ) -> Div {
-        let selected = self
-            .selected_fan
-            .filter(|key| self.visible_fan(chips, snapshots, *key).is_some())
-            .or_else(|| self.first_visible_fan(chips, snapshots));
-
         div()
             .flex_1()
             .min_h(px(0.))
@@ -425,35 +154,7 @@ impl Zugluft {
             .gap_2()
             .p_2()
             .child(self.render_fan_detail(chips, snapshots))
-            .child(self.render_fan_list_panel(selected, chips, snapshots, cx))
-    }
-
-    fn first_visible_fan(&self, chips: &[ChipInfo], snapshots: &[ChipSnapshot]) -> Option<FanKey> {
-        snapshots.iter().enumerate().find_map(|(ci, snapshot)| {
-            let chip = chips.get(ci)?;
-            snapshot.fans.iter().enumerate().find_map(|(fi, fan)| {
-                ((fan.rpm.is_some() || fan.duty.is_some())
-                    && !self.names.is_hidden(&chip.name, &format!("fan{}", fi + 1)))
-                .then_some((ci, fi))
-            })
-        })
-    }
-
-    fn visible_fan<'a>(
-        &self,
-        chips: &'a [ChipInfo],
-        snapshots: &'a [ChipSnapshot],
-        key: FanKey,
-    ) -> Option<(&'a ChipInfo, &'a FanStatus)> {
-        let chip = chips.get(key.0)?;
-        if self
-            .names
-            .is_hidden(&chip.name, &format!("fan{}", key.1 + 1))
-        {
-            return None;
-        }
-        let fan = snapshots.get(key.0)?.fans.get(key.1)?;
-        (fan.rpm.is_some() || fan.duty.is_some()).then_some((chip, fan))
+            .child(self.render_fan_list_panel(chips, snapshots, cx))
     }
 
     fn render_fan_detail(&self, chips: &[ChipInfo], snapshots: &[ChipSnapshot]) -> Div {
@@ -487,14 +188,13 @@ impl Zugluft {
 
     fn render_fan_list_panel(
         &self,
-        selected: Option<FanKey>,
         chips: &[ChipInfo],
         snapshots: &[ChipSnapshot],
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
         let mut panel = div()
             .id("fans-panel")
-            .w(px(320.))
+            .w(px(260.))
             .h_full()
             .min_h(px(0.))
             .overflow_y_scroll()
@@ -536,9 +236,7 @@ impl Zugluft {
                     (fan.rpm.is_some() || fan.duty.is_some())
                         && !self.names.is_hidden(&chip.name, &format!("fan{}", fi + 1))
                 })
-                .map(|(fi, fan)| {
-                    self.render_fan_list_row((ci, fi), chip, fan, selected == Some((ci, fi)), cx)
-                })
+                .map(|(fi, fan)| self.render_fan_list_row((ci, fi), chip, fan, cx))
                 .collect::<Vec<_>>();
             if rows.is_empty() {
                 continue;
@@ -565,7 +263,6 @@ impl Zugluft {
         key: FanKey,
         chip: &ChipInfo,
         fan: &FanStatus,
-        selected: bool,
         cx: &mut Context<Self>,
     ) -> Div {
         let name = self.names.fan_label(&chip.name, key.1);
@@ -599,15 +296,6 @@ impl Zugluft {
             })
             .unwrap_or_else(|| "Auto".to_string());
         let select_key = key;
-        let rename_key = SensorKey {
-            kind: SensorKind::FanRpm,
-            chip: key.0,
-            index: key.1,
-        };
-        let chip_name = chip.name.clone();
-        let label = name.clone();
-        let pin_item = self.dashboard_fan_item(&chip.name, key.1);
-
         div().child(
             div()
                 .id(("fan-list-row", key.0 * 64 + key.1))
@@ -618,12 +306,11 @@ impl Zugluft {
                 .py_1p5()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(if selected { FILL_MANUAL } else { BORDER }))
-                .bg(rgb(if selected { TRACK } else { PANEL }))
+                .border_color(rgb(BORDER))
+                .bg(rgb(PANEL))
                 .cursor_pointer()
                 .hover(|s| s.bg(rgb(FILL_HOVER)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.selected_fan = Some(select_key);
                     this.expanded.insert(select_key);
                     cx.notify();
                 }))
@@ -634,7 +321,7 @@ impl Zugluft {
                         .flex()
                         .flex_col()
                         .gap_0p5()
-                        .child(div().text_sm().truncate().child(name))
+                        .child(div().text_sm().truncate().child(name.clone()))
                         .child(
                             div()
                                 .text_xs()
@@ -652,35 +339,7 @@ impl Zugluft {
                         .truncate()
                         .child(duty),
                 )
-                .child(self.dashboard_pin_button(
-                    ("fan-list-pin", key.0 * 64 + key.1),
-                    pin_item,
-                    cx,
-                ))
-                .child(
-                    div()
-                        .id(("fan-list-rename", key.0 * 64 + key.1))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.begin_rename(
-                                rename_key,
-                                label.clone(),
-                                Some((chip_name.clone(), channel_key(rename_key))),
-                                window,
-                                cx,
-                            );
-                        }))
-                        .child(
-                            svg()
-                                .path("icons/pencil.svg")
-                                .w(px(13.))
-                                .h(px(13.))
-                                .text_color(rgb(TEXT_DIM))
-                                .hover(|s| s.text_color(rgb(TEXT))),
-                        ),
-                ),
+                .child(self.fan_action_menu(key, &chip.name, name.clone(), cx)),
         )
     }
 }

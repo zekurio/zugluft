@@ -157,7 +157,6 @@ pub(super) fn default_shown(kind: SensorKind) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AppView {
     Dashboard,
-    Curves,
     Fans,
     Telemetry,
     /// Units and channel visibility.
@@ -168,17 +167,15 @@ impl AppView {
     pub(super) fn id(self) -> usize {
         match self {
             Self::Dashboard => 0,
-            Self::Curves => 1,
-            Self::Fans => 2,
-            Self::Telemetry => 3,
-            Self::Settings => 4,
+            Self::Fans => 1,
+            Self::Telemetry => 2,
+            Self::Settings => 3,
         }
     }
 
     pub(super) fn icon(self) -> &'static str {
         match self {
             Self::Dashboard => "icons/dashboard.svg",
-            Self::Curves => "icons/spline.svg",
             Self::Fans => "icons/fan.svg",
             Self::Telemetry => "icons/thermometer.svg",
             Self::Settings => "icons/settings.svg",
@@ -188,7 +185,6 @@ impl AppView {
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::Dashboard => "Dashboard",
-            Self::Curves => "Curves",
             Self::Fans => "Fans",
             Self::Telemetry => "Telemetry",
             Self::Settings => "Settings",
@@ -207,6 +203,12 @@ pub(super) enum Dropdown {
     CurveQuickOpen,
     /// "Add input" picker in the custom-sensor editor, by sensor id.
     CustomInput { custom: String },
+    /// Row actions for a telemetry sensor.
+    SensorActions { sensor: usize },
+    /// Row actions for a fan.
+    FanActions { fan: FanKey },
+    /// Row actions for a curve.
+    CurveActions { curve: String },
 }
 
 /// What picking a dropdown option does.
@@ -224,6 +226,12 @@ pub(super) enum ConfirmDelete {
 #[derive(Clone)]
 pub(super) struct SensorFrame {
     pub(super) readings: HashMap<SensorKey, f32>,
+}
+
+#[derive(Clone)]
+pub(super) struct Toast {
+    pub(super) message: String,
+    pub(super) shown_tick: u32,
 }
 
 #[derive(Clone)]

@@ -1,6 +1,36 @@
 use super::*;
 
 impl Zugluft {
+    pub(super) const ACTION_MENU_WIDTH: Pixels = px(188.);
+
+    pub(super) fn menu_icon(&self, path: &'static str, color: u32) -> Div {
+        div()
+            .w(px(16.))
+            .h(px(16.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                svg()
+                    .path(path)
+                    .w(px(14.))
+                    .h(px(14.))
+                    .flex_none()
+                    .text_color(rgb(color)),
+            )
+    }
+
+    pub(super) fn menu_label(&self, label: &'static str, color: u32) -> Div {
+        div()
+            .flex_1()
+            .min_w(px(0.))
+            .truncate()
+            .text_sm()
+            .text_color(rgb(color))
+            .child(label)
+    }
+
     pub(super) fn render_controls(
         &self,
         chips: &[ChipInfo],
@@ -9,7 +39,7 @@ impl Zugluft {
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
-        let cards = self.render_dashboard_cards(chips, snapshots, customs, cx);
+        let sections = self.render_dashboard_sections(chips, snapshots, customs, cx);
 
         // The page scrolls; without this an overflowing page squeezes the
         // shrinkable parts of the layout instead (and curves + tuning make
@@ -29,15 +59,7 @@ impl Zugluft {
                 .border_1()
                 .border_color(rgb(BORDER))
                 .shadow(floating_shadow())
-                .child(
-                    div().flex().items_center().gap_2().child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("Dashboard"),
-                    ),
-                )
-                .child(if cards.is_empty() {
+                .child(if sections.is_empty() {
                     div()
                         .min_h(px(180.))
                         .flex()
@@ -47,12 +69,7 @@ impl Zugluft {
                         .text_color(rgb(TEXT_DIM))
                         .child("No pinned items")
                 } else {
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_start()
-                        .gap_2()
-                        .children(cards)
+                    div().flex().flex_col().gap_4().children(sections)
                 })
                 .child(self.render_curve_fab(cx))
                 .children((!notes.is_empty()).then(|| {
@@ -259,15 +276,7 @@ impl Zugluft {
         sensor: &SensorReading,
         cx: &mut Context<Self>,
     ) -> Div {
-        let key = sensor.key;
-        let channel = channel_key(key);
         let label = sensor.label.clone();
-        let chip = sensor.chip_name.clone();
-        let device = match key.kind {
-            SensorKind::Custom => "Custom".to_string(),
-            _ => self.names.device_label(&sensor.chip_name),
-        };
-        let pin_item = self.dashboard_sensor_item(sensor);
 
         div()
             .w(px(188.))
@@ -301,46 +310,7 @@ impl Zugluft {
                             .truncate()
                             .child(label.clone()),
                     )
-                    .child(self.dashboard_pin_button(
-                        ("dashboard-sensor-pin", sensor_id(key)),
-                        pin_item,
-                        cx,
-                    ))
-                    .child(
-                        div()
-                            .id(("dashboard-sensor-rename", sensor_id(key)))
-                            .flex_none()
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                if key.kind == SensorKind::Custom {
-                                    this.open_custom_dialog(chip.clone(), cx);
-                                } else {
-                                    this.begin_rename(
-                                        key,
-                                        label.clone(),
-                                        Some((chip.clone(), channel.clone())),
-                                        window,
-                                        cx,
-                                    );
-                                }
-                            }))
-                            .child(
-                                svg()
-                                    .path("icons/pencil.svg")
-                                    .w(px(12.))
-                                    .h(px(12.))
-                                    .text_color(rgb(TEXT_DIM))
-                                    .hover(|s| s.text_color(rgb(TEXT))),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(TEXT_DIM))
-                    .truncate()
-                    .child(device),
+                    .child(self.sensor_action_menu(sensor, cx)),
             )
             .child(
                 div()

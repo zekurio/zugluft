@@ -161,7 +161,6 @@ impl Zugluft {
             .border_color(rgb(BORDER))
             .shadow(subtle_shadow())
             .child(self.nav_item(AppView::Dashboard, cx))
-            .child(self.nav_item(AppView::Curves, cx))
             .child(self.nav_item(AppView::Fans, cx))
             .child(self.nav_item(AppView::Telemetry, cx))
             .child(div().flex_1())

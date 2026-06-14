@@ -62,6 +62,8 @@ public readonly struct PtrArray
 
 public static class Bridge
 {
+    private static int updateCount;
+
     [UnmanagedCallersOnly(EntryPoint = "free_string", CallConvs = new[] { typeof(CallConvCdecl) })]
     public static void FreeString(IntPtr ptr) => Strings.Free(ptr);
 
@@ -104,6 +106,18 @@ public static class Bridge
                 || value.Equals("yes", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static void CollectPeriodically()
+    {
+        // LHM allocates managed sensor/update state from a native-hosted
+        // process, where normal allocation pressure does not trigger GC
+        // quickly enough for a tiny service. Polling is 2 Hz, so this runs
+        // about every 30 seconds.
+        if (++updateCount % 60 == 0)
+        {
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: false);
+        }
+    }
+
     [UnmanagedCallersOnly(EntryPoint = "update_computer", CallConvs = new[] { typeof(CallConvCdecl) })]
     public static void UpdateComputer(IntPtr ptr)
     {
@@ -112,6 +126,7 @@ public static class Bridge
             if (Target<Computer>(ptr) is { } computer)
             {
                 computer.Accept(new UpdateVisitor());
+                CollectPeriodically();
             }
         }
         catch

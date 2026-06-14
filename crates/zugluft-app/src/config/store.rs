@@ -258,34 +258,63 @@ pub fn delete_curve(id: &str) {
 /// use the same `[[dashboard.item]]` order directly.
 pub fn set_dashboard_pinned(item: &DashboardItem, pinned: bool) {
     edit_config(|doc| {
-        if let Some(entries) = doc
-            .get_mut("dashboard")
-            .and_then(|dashboard| dashboard.get_mut("item"))
-            .and_then(|item| item.as_array_of_tables_mut())
-        {
-            let mut index = 0;
-            while index < entries.len() {
-                if dashboard_table_matches(entries.get(index), item) {
-                    entries.remove(index);
-                } else {
-                    index += 1;
-                }
-            }
-        }
-
-        if pinned {
-            let entries = doc["dashboard"]["item"]
-                .or_insert(toml_edit::Item::ArrayOfTables(
-                    toml_edit::ArrayOfTables::new(),
-                ))
-                .as_array_of_tables_mut();
-            if let Some(entries) = entries {
-                entries.push(dashboard_table(item));
-            }
-        }
-
-        prune_empty_dashboard(doc);
+        set_dashboard_pinned_in_doc(doc, item, pinned);
     });
+}
+
+fn set_dashboard_pinned_in_doc(
+    doc: &mut toml_edit::DocumentMut,
+    item: &DashboardItem,
+    pinned: bool,
+) {
+    normalize_dashboard_table(doc);
+
+    if let Some(entries) = doc
+        .get_mut("dashboard")
+        .and_then(|dashboard| dashboard.get_mut("item"))
+        .and_then(|item| item.as_array_of_tables_mut())
+    {
+        let mut index = 0;
+        while index < entries.len() {
+            if dashboard_table_matches(entries.get(index), item) {
+                entries.remove(index);
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    if pinned {
+        if doc.get("dashboard").is_none() {
+            doc.as_table_mut()
+                .insert("dashboard", toml_edit::Item::Table(toml_edit::Table::new()));
+        }
+        let entries = doc["dashboard"]["item"]
+            .or_insert(toml_edit::Item::ArrayOfTables(
+                toml_edit::ArrayOfTables::new(),
+            ))
+            .as_array_of_tables_mut();
+        if let Some(entries) = entries {
+            entries.push(dashboard_table(item));
+        }
+    }
+
+    prune_empty_dashboard(doc);
+}
+
+fn normalize_dashboard_table(doc: &mut toml_edit::DocumentMut) {
+    let Some(item) = doc.as_table_mut().remove("dashboard") else {
+        return;
+    };
+    match item.into_table() {
+        Ok(table) => {
+            doc.as_table_mut()
+                .insert("dashboard", toml_edit::Item::Table(table));
+        }
+        Err(item) => {
+            doc.as_table_mut().insert("dashboard", item);
+        }
+    }
 }
 
 fn dashboard_table(item: &DashboardItem) -> toml_edit::Table {
@@ -345,6 +374,39 @@ fn prune_empty_dashboard(doc: &mut toml_edit::DocumentMut) {
         .is_some_and(|dashboard| dashboard.is_empty());
     if dashboard_empty {
         doc.as_table_mut().remove("dashboard");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pins_into_empty_inline_dashboard_table() {
+        let mut doc = "dashboard = {}\n"
+            .parse::<toml_edit::DocumentMut>()
+            .expect("valid toml");
+        let item = DashboardItem::fan("nct6798", "fan1");
+
+        set_dashboard_pinned_in_doc(&mut doc, &item, true);
+        let text = doc.to_string();
+
+        assert!(text.contains("[[dashboard.item]]"));
+        let config: NamesConfig = toml::from_str(&text).expect("dashboard pin loads");
+        assert!(config.is_dashboard_pinned(&item));
+    }
+
+    #[test]
+    fn unpin_prunes_empty_dashboard_table() {
+        let mut doc =
+            "[[dashboard.item]]\nkind = \"fan\"\nchip = \"nct6798\"\nchannel = \"fan1\"\n"
+                .parse::<toml_edit::DocumentMut>()
+                .expect("valid toml");
+        let item = DashboardItem::fan("nct6798", "fan1");
+
+        set_dashboard_pinned_in_doc(&mut doc, &item, false);
+
+        assert!(doc.get("dashboard").is_none());
     }
 }
 
@@ -408,6 +470,14 @@ pub fn set_graph_style(chip: &str, key: &str, style: Option<&str>) {
 /// Sets or clears a graph line's visibility override.
 pub fn set_graph_shown(chip: &str, key: &str, shown: Option<bool>) {
     set_graph_field("graph_shown", chip, key, shown.map(toml_edit::value));
+}
+
+/// Remembers the last curve selected for a fan. This is a resume preference,
+/// not the active service assignment.
+pub fn save_fan_curve(chip: &str, fan: usize, curve: &str) {
+    edit_config(|doc| {
+        doc["fan_curve"][chip][format!("fan{}", fan + 1)] = toml_edit::value(curve);
+    });
 }
 
 /// Writes one `[section.<chip>] key = value`, or removes it when `value`
