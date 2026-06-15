@@ -17,6 +17,7 @@ struct LinearFields {
 struct CurveStepper {
     minus_id: (&'static str, usize),
     plus_id: (&'static str, usize),
+    field: CurveNumberField,
     label: &'static str,
     value: String,
     unit: &'static str,
@@ -203,6 +204,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-fn-h-minus", index),
                     plus_id: ("curve-fn-h-plus", index),
+                    field: CurveNumberField::HysteresisDegrees,
                     label: "Hysteresis",
                     value: format!("{:.1}", hysteresis.degrees),
                     unit: "C",
@@ -215,6 +217,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-fn-rt-minus", index),
                     plus_id: ("curve-fn-rt-plus", index),
+                    field: CurveNumberField::HysteresisDelay,
                     label: "Response",
                     value: format!("{:.1}", hysteresis.delay_ms as f32 / 1000.0),
                     unit: "s",
@@ -274,6 +277,7 @@ impl Zugluft {
             CurveStepper {
                 minus_id: ("curve-fn-alpha-minus", index),
                 plus_id: ("curve-fn-alpha-plus", index),
+                field: CurveNumberField::EmaAlpha,
                 label: "Alpha",
                 value: format!("{:.0}", alpha.clamp(0.01, 1.0) * 100.0),
                 unit: "%",
@@ -342,6 +346,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-trigger-th-minus", index),
                     plus_id: ("curve-trigger-th-plus", index),
+                    field: CurveNumberField::Kind(CurveKindField::TriggerThreshold),
                     label: "Threshold",
                     value: fmt_setting(fields.threshold),
                     unit: "C",
@@ -368,6 +373,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-trigger-before-minus", index),
                     plus_id: ("curve-trigger-before-plus", index),
+                    field: CurveNumberField::Kind(CurveKindField::TriggerBefore),
                     label: "Before",
                     value: fmt_setting(fields.before),
                     unit: "%",
@@ -389,6 +395,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-trigger-after-minus", index),
                     plus_id: ("curve-trigger-after-plus", index),
+                    field: CurveNumberField::Kind(CurveKindField::TriggerAfter),
                     label: "After",
                     value: fmt_setting(fields.after),
                     unit: "%",
@@ -427,6 +434,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-linear-start-t-minus", index),
                     plus_id: ("curve-linear-start-t-plus", index),
+                    field: CurveNumberField::Kind(CurveKindField::LinearStartTemp),
                     label: "Start temp",
                     value: fmt_setting(fields.start.0),
                     unit: "C",
@@ -453,6 +461,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-linear-start-duty-minus", index),
                     plus_id: ("curve-linear-start-duty-plus", index),
+                    field: CurveNumberField::Kind(CurveKindField::LinearStartDuty),
                     label: "Start duty",
                     value: fmt_setting(fields.start.1),
                     unit: "%",
@@ -479,6 +488,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-linear-end-t-minus", index),
                     plus_id: ("curve-linear-end-t-plus", index),
+                    field: CurveNumberField::Kind(CurveKindField::LinearEndTemp),
                     label: "End temp",
                     value: fmt_setting(fields.end.0),
                     unit: "C",
@@ -505,6 +515,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-linear-end-duty-minus", index),
                     plus_id: ("curve-linear-end-duty-plus", index),
+                    field: CurveNumberField::Kind(CurveKindField::LinearEndDuty),
                     label: "End duty",
                     value: fmt_setting(fields.end.1),
                     unit: "%",
@@ -580,6 +591,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-window-tmin-minus", index),
                     plus_id: ("curve-window-tmin-plus", index),
+                    field: CurveNumberField::Window(CurveWindowField::TempMin),
                     label: "Temp min",
                     value: fmt_setting(window.temp_min),
                     unit: "C",
@@ -596,6 +608,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-window-tmax-minus", index),
                     plus_id: ("curve-window-tmax-plus", index),
+                    field: CurveNumberField::Window(CurveWindowField::TempMax),
                     label: "Temp max",
                     value: fmt_setting(window.temp_max),
                     unit: "C",
@@ -612,6 +625,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-window-dmin-minus", index),
                     plus_id: ("curve-window-dmin-plus", index),
+                    field: CurveNumberField::Window(CurveWindowField::DutyMin),
                     label: "Duty min",
                     value: fmt_setting(window.duty_min),
                     unit: "%",
@@ -628,6 +642,7 @@ impl Zugluft {
                 CurveStepper {
                     minus_id: ("curve-window-dmax-minus", index),
                     plus_id: ("curve-window-dmax-plus", index),
+                    field: CurveNumberField::Window(CurveWindowField::DutyMax),
                     label: "Duty max",
                     value: fmt_setting(window.duty_max),
                     unit: "%",
@@ -649,6 +664,23 @@ impl Zugluft {
         on_minus: impl Fn(&mut Self, &mut Context<Self>) + 'static,
         on_plus: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> Div {
+        let curve_id = self
+            .curve_dialog
+            .as_deref()
+            .or(self.selected_curve.as_deref())
+            .unwrap_or_default()
+            .to_string();
+        let editing = self
+            .curve_number_edit
+            .as_ref()
+            .filter(|edit| edit.curve == curve_id && edit.field == stepper.field);
+        let value = stepper.value.clone();
+        let field = stepper.field;
+        let input_id = (
+            "curve-number-input",
+            stepper.field.id() * 1024 + stepper.minus_id.1,
+        );
+
         div()
             .w_full()
             .flex()
@@ -668,20 +700,50 @@ impl Zugluft {
                     .rounded_md()
                     .bg(rgb(TRACK))
                     .border_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(if editing.is_some() {
+                        FILL_MANUAL
+                    } else {
+                        BORDER
+                    }))
                     .overflow_hidden()
                     .child(self.curve_step_button(stepper.minus_id, "-", cx, on_minus))
                     .child(
                         div()
+                            .id(input_id)
                             .flex_1()
+                            .min_w(px(44.))
+                            .h_full()
                             .flex()
                             .items_center()
                             .justify_center()
                             .gap_1()
+                            .px_1()
                             .text_xs()
                             .font_family(FONT_MONO)
                             .text_color(rgb(TEXT))
-                            .child(stepper.value)
+                            .cursor_pointer()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                            )
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                if !curve_id.is_empty() {
+                                    this.begin_curve_number_edit(
+                                        curve_id.clone(),
+                                        field,
+                                        value.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            }))
+                            .child(match editing {
+                                Some(edit) => {
+                                    self.render_text_edit_contents(&edit.input, 12., true)
+                                }
+                                None => div().flex_none().child(stepper.value),
+                            })
                             .child(div().text_color(rgb(TEXT_DIM)).child(stepper.unit)),
                     )
                     .child(self.curve_step_button(stepper.plus_id, "+", cx, on_plus)),

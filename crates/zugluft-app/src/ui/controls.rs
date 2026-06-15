@@ -162,6 +162,10 @@ impl Zugluft {
                         MouseButton::Left,
                         cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
                     )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|_, _: &MouseUpEvent, _, cx| cx.stop_propagation()),
+                    )
                     .children(options.into_iter().enumerate().map(|(i, (label, action))| {
                         div().child(
                             div()
@@ -174,6 +178,7 @@ impl Zugluft {
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgb(FILL_HOVER)))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    cx.stop_propagation();
                                     this.open_dropdown = None;
                                     action(this, cx);
                                     cx.notify();

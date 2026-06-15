@@ -1,4 +1,3 @@
-use super::curve_helpers::{curve_function_label, curve_kind_label};
 use super::*;
 
 impl Zugluft {
@@ -61,35 +60,6 @@ impl Zugluft {
                 .size_full(),
             );
 
-        let live_text = match (input, output) {
-            (Some(input), Some(output)) => format!("{input:.1} °C → {output:.0} %"),
-            _ => "—".to_string(),
-        };
-        let function_text = format!(
-            "{} · {}",
-            curve_kind_label(&def.kind),
-            curve_function_label(def.primary_function())
-        );
-        let footer = div()
-            .flex()
-            .items_center()
-            .child(
-                div()
-                    .text_xs()
-                    .font_family(FONT_MONO)
-                    .text_color(rgb(TEXT_DIM))
-                    .child(live_text),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .text_xs()
-                    .font_family(FONT_MONO)
-                    .text_color(rgb(TEXT_DIM))
-                    .truncate()
-                    .child(function_text),
-            );
-
         div()
             .w(px(268.))
             .flex()
@@ -118,7 +88,6 @@ impl Zugluft {
                             .child(self.source_label(&def.source)),
                     ),
             )
-            .child(footer)
     }
 
     pub(super) fn curve_action_menu(
@@ -247,13 +216,6 @@ impl Zugluft {
             .iter()
             .position(|other| other.id == def.id)
             .unwrap_or(0);
-        let input = def.source.resolve(chips, snapshots, customs);
-        let output = input.and_then(|input| def.kind.evaluate(input));
-        let live_text = match (input, output) {
-            (Some(input), Some(output)) => format!("{input:.1} °C → {output:.0} %"),
-            _ => "source unavailable".to_string(),
-        };
-
         let name_input = self
             .curve_name_edit
             .as_ref()
@@ -261,8 +223,84 @@ impl Zugluft {
             .map(|(_, input)| input.clone())
             .unwrap_or_else(|| TextEdit::new(def.name.clone()));
 
+        let graph_kind = matches!(def.kind.sanitized(), CurveKind::Graph { .. });
+        let name_field = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Name"))
+            .child(self.render_dialog_text_field(&name_input, true));
+        let source_field = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Source"))
+            .child(self.render_source_dropdown(&def, chips, snapshots, customs, cx));
+
+        let body =
+            if graph_kind {
+                div()
+                    .w_full()
+                    .min_h(px(0.))
+                    .h(px(760.))
+                    .flex()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .h_full()
+                            .rounded_md()
+                            .overflow_hidden()
+                            .child(self.render_curve_editor_graph(
+                                index, &def, chips, snapshots, customs, cx,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .id("curve-dialog-side-scroll")
+                            .w(px(300.))
+                            .flex_none()
+                            .min_w(px(0.))
+                            .h_full()
+                            .border_l_1()
+                            .border_color(rgb(BORDER))
+                            .pl_4()
+                            .pr_1()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .overflow_y_scroll()
+                            .child(name_field)
+                            .child(source_field)
+                            .child(self.render_curve_side_panel(&def, index, cx)),
+                    )
+            } else {
+                div()
+                    .w_full()
+                    .pt_1()
+                    .border_t_1()
+                    .border_color(rgb(BORDER))
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(name_field)
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_end()
+                            .gap_2()
+                            .child(source_field.flex_1().min_w(px(0.))),
+                    )
+                    .child(self.render_curve_side_panel(&def, index, cx))
+            };
+
+        let panel_width = if graph_kind { px(1120.) } else { px(620.) };
         let panel = self
-            .modal_panel("curve-dialog", px(620.), cx)
+            .modal_panel("curve-dialog", panel_width, cx)
             .overflow_y_scroll()
             .gap_3()
             .p_4()
@@ -282,72 +320,7 @@ impl Zugluft {
                         },
                     ))),
             )
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Name"))
-                    .child(self.render_dialog_text_field(&name_input, true)),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_end()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Source"))
-                            .child(
-                                self.render_source_dropdown(&def, chips, snapshots, customs, cx),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w(px(128.))
-                            .flex_none()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Live"))
-                            .child(
-                                div()
-                                    .h(px(30.))
-                                    .w_full()
-                                    .flex()
-                                    .items_center()
-                                    .px_2()
-                                    .rounded_md()
-                                    .bg(rgb(TRACK))
-                                    .border_1()
-                                    .border_color(rgb(BORDER))
-                                    .text_xs()
-                                    .font_family(FONT_MONO)
-                                    .text_color(rgb(TEXT))
-                                    .truncate()
-                                    .child(live_text),
-                            ),
-                    ),
-            )
-            .child(
-                div().h(px(230.)).flex_none().child(
-                    self.render_curve_editor_graph(index, &def, chips, snapshots, customs, cx),
-                ),
-            )
-            .child(
-                div()
-                    .pt_1()
-                    .border_t_1()
-                    .border_color(rgb(BORDER))
-                    .child(self.render_curve_side_panel(&def, index, cx)),
-            );
+            .child(body);
 
         Some(self.modal_backdrop(panel, cx, |this, cx| {
             this.close_curve_dialog(cx);

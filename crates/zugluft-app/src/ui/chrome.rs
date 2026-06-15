@@ -87,6 +87,7 @@ impl Zugluft {
                 MouseButton::Left,
                 cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
             )
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.stop_propagation()))
     }
 
     pub(super) fn modal_backdrop(
@@ -105,7 +106,18 @@ impl Zugluft {
             .bg(hsla(0.0, 0.0, 0.0, 0.55))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _: &MouseDownEvent, _, cx| on_close(this, cx)),
+                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(move |this, _: &MouseUpEvent, _, cx| {
+                    cx.stop_propagation();
+                    if this.curve_drag.is_some() {
+                        this.end_curve_drag(cx);
+                    } else {
+                        on_close(this, cx);
+                    }
+                }),
             )
             .child(panel)
     }

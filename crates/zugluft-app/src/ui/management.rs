@@ -23,14 +23,14 @@ impl Zugluft {
         };
         let curve_window = def.window.sanitized();
         let y_axis = div()
-            .w(px(52.))
+            .w(px(58.))
             .h_full()
             .flex()
             .flex_col()
             .justify_between()
             .items_end()
-            .children((0..=4).map(|i| {
-                let value = curve_window.duty_max - curve_window.duty_span() * (i as f32 / 4.0);
+            .children((0..=10).map(|i| {
+                let value = curve_window.duty_max - curve_window.duty_span() * (i as f32 / 10.0);
                 div()
                     .text_xs()
                     .font_family(FONT_MONO)
@@ -75,15 +75,17 @@ impl Zugluft {
         let curve_bounds = self.curve_bounds.clone();
         let page_curve_id = def.id.clone();
         let graph_area = div()
-            .flex_1()
+            .size_full()
             .min_h(px(0.))
+            .min_w(px(0.))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3()
             .child(
                 div()
                     .flex_1()
                     .min_h(px(0.))
+                    .min_w(px(0.))
                     .flex()
                     .gap_2()
                     .child(y_axis)
@@ -99,6 +101,13 @@ impl Zugluft {
                                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
                                     this.selected_curve = Some(page_curve_id.clone());
                                     this.curve_editor_down(event, cx);
+                                }),
+                            )
+                            .on_mouse_up(
+                                MouseButton::Left,
+                                cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    this.end_curve_drag(cx);
                                 }),
                             )
                             .child(
@@ -120,15 +129,15 @@ impl Zugluft {
                     .flex_none()
                     .flex()
                     .gap_2()
-                    .child(div().w(px(52.)))
+                    .child(div().w(px(58.)))
                     .child(
                         div()
                             .flex_1()
                             .flex()
                             .justify_between()
-                            .children((0..=4).map(|i| {
+                            .children((0..=10).map(|i| {
                                 let value = curve_window.temp_min
-                                    + curve_window.temp_span() * (i as f32 / 4.0);
+                                    + curve_window.temp_span() * (i as f32 / 10.0);
                                 div()
                                     .text_xs()
                                     .font_family(FONT_MONO)

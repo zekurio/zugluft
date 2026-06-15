@@ -82,18 +82,20 @@ pub(super) fn draw_curve_editor(
         )
     };
 
-    // Gridlines divide the current editor window into quarters.
-    for i in 0..=4 {
-        let fraction = i as f32 / 4.0;
+    // Dense editor grid, closer to dedicated fan-curve editors than to the
+    // compact dashboard previews.
+    for i in 0..=10 {
+        let fraction = i as f32 / 10.0;
+        let stroke = if i == 0 || i == 10 { px(1.3) } else { px(1.) };
         let y = origin.y + plot.height * fraction;
-        let mut builder = PathBuilder::stroke(px(1.)).dash_array(&[px(2.), px(4.)]);
+        let mut builder = PathBuilder::stroke(stroke);
         builder.move_to(point(origin.x, y));
         builder.line_to(point(origin.x + plot.width, y));
         if let Ok(path) = builder.build() {
             window.paint_path(path, rgb(GRID_LINE));
         }
         let x = origin.x + plot.width * fraction;
-        let mut builder = PathBuilder::stroke(px(1.)).dash_array(&[px(2.), px(4.)]);
+        let mut builder = PathBuilder::stroke(stroke);
         builder.move_to(point(x, origin.y));
         builder.line_to(point(x, origin.y + plot.height));
         if let Ok(path) = builder.build() {
@@ -104,7 +106,7 @@ pub(super) fn draw_curve_editor(
     // The shape follows the same evaluator the service uses.
     let shape = curve_shape_points(&data.kind, curve_window);
     if let Some(first) = shape.first().copied() {
-        let mut builder = PathBuilder::stroke(px(2.));
+        let mut builder = PathBuilder::stroke(px(2.4));
         builder.move_to(to_px(first.0, first.1));
         for &(temp, percent) in shape.iter().skip(1) {
             builder.line_to(to_px(temp, percent));
@@ -143,9 +145,9 @@ pub(super) fn draw_curve_editor(
         for (i, &(temp, percent)) in points.iter().enumerate() {
             let center = to_px(temp, percent);
             let radius = if data.drag == Some(i) {
-                px(7.)
+                px(8.)
             } else {
-                px(5.5)
+                px(6.5)
             };
             window.paint_quad(quad(
                 Bounds::new(

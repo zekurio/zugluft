@@ -100,6 +100,107 @@ impl Zugluft {
         self.commit_curve(def, cx);
     }
 
+    pub(super) fn set_curve_number(
+        &mut self,
+        id: &str,
+        field: CurveNumberField,
+        value: f32,
+        cx: &mut Context<Self>,
+    ) {
+        match field {
+            CurveNumberField::Kind(field) => self.set_curve_kind_value(id, field, value, cx),
+            CurveNumberField::Window(field) => self.set_curve_window_value(id, field, value, cx),
+            CurveNumberField::HysteresisDegrees => {
+                let mut hysteresis = match self
+                    .curve_for_display(id)
+                    .map(|def| def.primary_function())
+                    .unwrap_or(CurveFunction::Standard {
+                        hysteresis: Default::default(),
+                    }) {
+                    CurveFunction::Standard { hysteresis } => hysteresis.sanitized(),
+                    _ => CurveHysteresis::default(),
+                };
+                hysteresis.degrees = value.clamp(0.0, 20.0);
+                self.set_curve_primary_function(id, CurveFunction::Standard { hysteresis }, cx);
+            }
+            CurveNumberField::HysteresisDelay => {
+                let mut hysteresis = match self
+                    .curve_for_display(id)
+                    .map(|def| def.primary_function())
+                    .unwrap_or(CurveFunction::Standard {
+                        hysteresis: Default::default(),
+                    }) {
+                    CurveFunction::Standard { hysteresis } => hysteresis.sanitized(),
+                    _ => CurveHysteresis::default(),
+                };
+                hysteresis.delay_ms = (value * 1000.0).round().clamp(0.0, 60_000.0) as u64;
+                self.set_curve_primary_function(id, CurveFunction::Standard { hysteresis }, cx);
+            }
+            CurveNumberField::EmaAlpha => {
+                self.set_curve_primary_function(
+                    id,
+                    CurveFunction::Ema {
+                        alpha: (value / 100.0).clamp(0.01, 1.0),
+                    },
+                    cx,
+                );
+            }
+        }
+    }
+
+    fn set_curve_kind_value(
+        &mut self,
+        id: &str,
+        field: CurveKindField,
+        value: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut def) = self.curve_for_display(id) else {
+            return;
+        };
+        def.kind = def.kind.sanitized();
+        match (&mut def.kind, field) {
+            (CurveKind::Trigger { threshold, .. }, CurveKindField::TriggerThreshold) => {
+                *threshold = value
+            }
+            (CurveKind::Trigger { before, .. }, CurveKindField::TriggerBefore) => *before = value,
+            (CurveKind::Trigger { after, .. }, CurveKindField::TriggerAfter) => *after = value,
+            (CurveKind::Linear { start, end }, CurveKindField::LinearStartTemp) => {
+                start.0 = value.clamp(-40.0, end.0 - 0.5)
+            }
+            (CurveKind::Linear { start, .. }, CurveKindField::LinearStartDuty) => start.1 = value,
+            (CurveKind::Linear { start, end }, CurveKindField::LinearEndTemp) => {
+                end.0 = value.clamp(start.0 + 0.5, 150.0)
+            }
+            (CurveKind::Linear { end, .. }, CurveKindField::LinearEndDuty) => end.1 = value,
+            _ => return,
+        }
+        def.normalize_kind();
+        self.commit_curve(def, cx);
+    }
+
+    fn set_curve_window_value(
+        &mut self,
+        id: &str,
+        field: CurveWindowField,
+        value: f32,
+        cx: &mut Context<Self>,
+    ) {
+        self.end_curve_drag(cx);
+        let Some(mut def) = self.curve_for_display(id) else {
+            return;
+        };
+        let mut window = def.window.sanitized();
+        match field {
+            CurveWindowField::TempMin => window.temp_min = value,
+            CurveWindowField::TempMax => window.temp_max = value,
+            CurveWindowField::DutyMin => window.duty_min = value,
+            CurveWindowField::DutyMax => window.duty_max = value,
+        }
+        def.window = window.sanitized();
+        self.commit_curve(def, cx);
+    }
+
     pub(super) fn set_curve_kind(&mut self, id: &str, kind: CurveKind, cx: &mut Context<Self>) {
         let Some(mut def) = self.curve_for_display(id) else {
             return;
@@ -313,6 +414,7 @@ impl Zugluft {
     }
 
     pub(super) fn open_curve_dialog(&mut self, id: String, cx: &mut Context<Self>) {
+        self.curve_number_edit = None;
         self.curve_name_edit = self
             .names
             .curves()
@@ -328,10 +430,12 @@ impl Zugluft {
     }
 
     pub(super) fn close_curve_dialog(&mut self, cx: &mut Context<Self>) {
+        self.commit_curve_number_edit(cx);
         self.end_curve_drag(cx); // commits any in-flight point drag
         self.commit_curve_dialog_name(cx);
         self.curve_dialog = None;
         self.curve_name_edit = None;
+        self.curve_number_edit = None;
         self.open_dropdown = None;
         cx.notify();
     }
@@ -367,6 +471,59 @@ impl Zugluft {
         }
         config::save_curve_name(&id, &name);
         self.reload_config(cx);
+    }
+
+    pub(super) fn begin_curve_number_edit(
+        &mut self,
+        curve: String,
+        field: CurveNumberField,
+        current: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit_curve_number_edit(cx);
+        self.curve_number_edit = Some(CurveNumberEdit {
+            curve,
+            field,
+            input: TextEdit::new(current),
+        });
+        window.focus(&self.focus_handle);
+        cx.notify();
+    }
+
+    pub(super) fn handle_curve_number_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        match event.keystroke.key.as_str() {
+            "enter" => self.commit_curve_number_edit(cx),
+            "escape" => {
+                self.curve_number_edit = None;
+                cx.notify();
+            }
+            _ => {
+                if let Some(edit) = &mut self.curve_number_edit
+                    && Self::handle_text_key(
+                        &mut edit.input,
+                        event,
+                        8,
+                        |c| c.is_ascii_digit() || c == '.' || c == '-',
+                        cx,
+                    )
+                {
+                    cx.notify();
+                }
+            }
+        }
+    }
+
+    pub(super) fn commit_curve_number_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(edit) = self.curve_number_edit.take() else {
+            return;
+        };
+        let text = edit.input.text.trim();
+        if let Ok(value) = text.parse::<f32>() {
+            self.set_curve_number(&edit.curve, edit.field, value, cx);
+        } else {
+            cx.notify();
+        }
     }
 
     /// Hides or shows a channel (`fanN`/`tempN`/`powerN`), persisted in
@@ -492,6 +649,7 @@ impl Zugluft {
                     .position(|&(pt, _)| pt > temp)
                     .unwrap_or(points.len());
                 points.insert(index, (temp, target));
+                enforce_graph_monotonic_from(points, index);
                 self.curve_drag = Some(index);
                 self.curve_edit = Some(def);
             }
@@ -532,6 +690,7 @@ impl Zugluft {
             window.temp_max
         };
         points[index] = (temp.clamp(min, max.max(min)), target);
+        enforce_graph_monotonic_from(points, index);
         cx.notify();
     }
 
@@ -542,5 +701,25 @@ impl Zugluft {
         {
             self.commit_curve(def, cx);
         }
+    }
+}
+
+fn enforce_graph_monotonic_from(points: &mut [(f32, f32)], index: usize) {
+    let Some((_, target)) = points.get(index).copied() else {
+        return;
+    };
+    let mut ceiling = target;
+    for point in points[..index].iter_mut().rev() {
+        if point.1 > ceiling {
+            point.1 = ceiling;
+        }
+        ceiling = point.1;
+    }
+    let mut floor = target;
+    for point in points[index + 1..].iter_mut() {
+        if point.1 < floor {
+            point.1 = floor;
+        }
+        floor = point.1;
     }
 }

@@ -597,6 +597,47 @@ pub(super) struct FieldEdit {
     pub(super) input: TextEdit,
 }
 
+/// In-progress edit of a numeric curve setting in the curve dialog.
+pub(super) struct CurveNumberEdit {
+    pub(super) curve: String,
+    pub(super) field: CurveNumberField,
+    pub(super) input: TextEdit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CurveNumberField {
+    Kind(CurveKindField),
+    Window(CurveWindowField),
+    HysteresisDegrees,
+    HysteresisDelay,
+    EmaAlpha,
+}
+
+impl CurveNumberField {
+    pub(super) fn id(self) -> usize {
+        match self {
+            Self::Kind(field) => match field {
+                CurveKindField::TriggerThreshold => 0,
+                CurveKindField::TriggerBefore => 1,
+                CurveKindField::TriggerAfter => 2,
+                CurveKindField::LinearStartTemp => 3,
+                CurveKindField::LinearStartDuty => 4,
+                CurveKindField::LinearEndTemp => 5,
+                CurveKindField::LinearEndDuty => 6,
+            },
+            Self::Window(field) => match field {
+                CurveWindowField::TempMin => 10,
+                CurveWindowField::TempMax => 11,
+                CurveWindowField::DutyMin => 12,
+                CurveWindowField::DutyMax => 13,
+            },
+            Self::HysteresisDegrees => 20,
+            Self::HysteresisDelay => 21,
+            Self::EmaAlpha => 22,
+        }
+    }
+}
+
 /// The service binary ships next to the GUI.
 pub(super) fn service_exe() -> Option<PathBuf> {
     let path = std::env::current_exe()

@@ -81,9 +81,9 @@ jobs:
       release_name: ${{ steps.meta.outputs.release_name }}
       is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
       make_latest: ${{ steps.meta.outputs.make_latest }}
-      short_sha: ${{ steps.meta.outputs.short_sha }}
+      short_sha: ${{ steps.version_commit.outputs.short_sha || steps.meta.outputs.short_sha }}
       previous_tag: ${{ steps.previous_tag.outputs.previous_tag }}
-      ref: ${{ steps.meta.outputs.ref }}
+      ref: ${{ steps.version_commit.outputs.ref || steps.meta.outputs.ref }}
 
     steps:
       - name: Checkout repository
@@ -158,11 +158,6 @@ jobs:
               echo "Stable release versions must be plain semver (vX.Y.Z), got: $raw" >&2
               exit 1
             fi
-            if [[ "$cargo_version" != "$version" ]]; then
-              echo "Stable release $version requires Cargo.toml workspace version $version, got $cargo_version." >&2
-              exit 1
-            fi
-
             {
               echo "release_channel=stable"
               echo "version=$version"
@@ -174,6 +169,30 @@ jobs:
               echo "short_sha=$short_sha"
             } >> "$GITHUB_OUTPUT"
           fi
+
+      - id: version_commit
+        name: Commit stable version
+        if: github.event_name == 'workflow_dispatch' && steps.meta.outputs.release_channel == 'stable'
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          pwsh ./scripts/stamp-release-version.ps1 -Version "$VERSION"
+
+          if git diff --quiet -- Cargo.toml Cargo.lock crates/zugluft-cli/Cargo.toml; then
+            echo "Workspace version is already $VERSION; no version commit needed."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Cargo.toml Cargo.lock crates/zugluft-cli/Cargo.toml
+            git commit -m "chore: release v$VERSION"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+          {
+            echo "ref=$(git rev-parse HEAD)"
+            echo "short_sha=$(git rev-parse --short=12 HEAD)"
+          } >> "$GITHUB_OUTPUT"
 
       - id: previous_tag
         name: Resolve previous release tag

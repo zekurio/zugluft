@@ -19,22 +19,26 @@ service from the installed path.
 
 ## Stable Releases
 
-1. Update the workspace version in `Cargo.toml` if it is not already correct.
-2. After `main` is ready, create and push a stable tag:
+Run **Release** manually with:
+
+- `channel`: `stable`
+- `version`: `X.Y.Z` or `vX.Y.Z`
+
+The workflow stamps the requested version into `Cargo.toml`, `Cargo.lock`, and
+the internal crate dependency versions, then commits that change as
+`github-actions[bot]` before building and publishing the release.
+
+You can also release from an existing stable tag after the version files have
+already been updated:
 
    ```bash
    git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
 
-3. The **Release** workflow builds the Windows installer, generates checksums,
-   asks GitHub to generate changelog notes, prepends zugluft install notes, and
-   publishes the GitHub Release.
-
-You can also run **Release** manually with:
-
-- `channel`: `stable`
-- `version`: `X.Y.Z` or `vX.Y.Z`
+The **Release** workflow builds the Windows installer, generates checksums, asks
+GitHub to generate changelog notes, prepends zugluft install notes, and
+publishes the GitHub Release.
 
 ## Nightly Releases
 

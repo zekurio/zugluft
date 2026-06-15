@@ -70,29 +70,6 @@ pub(super) fn linear_kind_from(kind: &CurveKind) -> CurveKind {
     .sanitized()
 }
 
-pub(super) fn curve_function_label(function: CurveFunction) -> String {
-    match function.sanitized() {
-        CurveFunction::Identity => "Identity".to_string(),
-        CurveFunction::Standard { hysteresis } => {
-            let hysteresis = hysteresis.sanitized();
-            format!(
-                "Standard {:.1}C/{:.1}s",
-                hysteresis.degrees,
-                hysteresis.delay_ms as f32 / 1000.0
-            )
-        }
-        CurveFunction::Ema { alpha } => format!("EMA {:.0}%", alpha * 100.0),
-    }
-}
-
-pub(super) fn curve_kind_label(kind: &CurveKind) -> &'static str {
-    match kind {
-        CurveKind::Graph { .. } => "Graph",
-        CurveKind::Trigger { .. } => "Trigger",
-        CurveKind::Linear { .. } => "Linear",
-    }
-}
-
 pub(super) fn fmt_axis_value(value: f32) -> String {
     if (value - value.round()).abs() < 0.05 {
         format!("{value:.0}")

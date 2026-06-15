@@ -112,6 +112,8 @@ pub struct Zugluft {
     expanded: HashSet<FanKey>,
     /// Inline edit of a tuning field; keyboard input goes here while set.
     editing: Option<FieldEdit>,
+    /// Inline edit of a curve dialog number field.
+    curve_number_edit: Option<CurveNumberEdit>,
     /// Optimistic settings per fan, held until the service echoes them.
     pending_settings: HashMap<FanKey, FanSettings>,
     selected_curve: Option<String>,
@@ -181,6 +183,7 @@ impl Zugluft {
             renaming: None,
             expanded: HashSet::new(),
             editing: None,
+            curve_number_edit: None,
             pending_settings: HashMap::new(),
             selected_curve: None,
             focus_handle: cx.focus_handle(),
@@ -278,7 +281,11 @@ impl Zugluft {
 
         // While a text input is open, re-render every tick so its caret
         // blinks (state changes alone don't fire often enough).
-        if self.renaming.is_some() || self.editing.is_some() || self.search_active {
+        if self.renaming.is_some()
+            || self.editing.is_some()
+            || self.curve_number_edit.is_some()
+            || self.search_active
+        {
             cx.notify();
         }
     }
@@ -447,6 +454,8 @@ impl Zugluft {
     fn handle_root_mouse_down(&mut self, cx: &mut Context<Self>) {
         if self.editing.is_some() {
             self.commit_edit(cx);
+        } else if self.curve_number_edit.is_some() {
+            self.commit_curve_number_edit(cx);
         } else if self.search_active {
             self.search_active = false;
             cx.notify();
@@ -456,6 +465,8 @@ impl Zugluft {
     fn handle_root_key_down(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         if self.editing.is_some() {
             self.handle_edit_key(event, cx);
+        } else if self.curve_number_edit.is_some() {
+            self.handle_curve_number_key(event, cx);
         } else if self.renaming.is_some() {
             self.handle_rename_key(event, cx);
         } else if self.search_active {
