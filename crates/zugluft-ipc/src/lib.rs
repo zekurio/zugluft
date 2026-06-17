@@ -25,14 +25,14 @@ pub const CONTROL_PIPE: &str = r"\\.\pipe\zugluft.control";
 /// Client → service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
-    /// Pin a fan to a fixed target (`Some(0..=255)`) or hand it back to
-    /// automatic control (`None`). Calibrated services interpret the target
-    /// as speed percent and map it to a command; uncalibrated services write
-    /// it as raw PWM.
-    SetDuty {
+    /// Pin a fan to a fixed target (`Some(round(percent * 255 / 100))`) or
+    /// hand it back to automatic control (`None`). Calibrated services
+    /// interpret the target as speed percent and map it to a hardware
+    /// command; uncalibrated services write the equivalent command percent.
+    SetTarget {
         chip: usize,
         fan: usize,
-        duty: Option<u8>,
+        target: Option<u8>,
     },
     /// Measure every controllable fan's RPM response: full command first (the
     /// max-RPM reference for percent displays), then stepping down. Takes
@@ -54,7 +54,7 @@ pub enum Request {
     /// with no GUI running.
     SetCurves(Vec<CurveDef>),
     /// Drive a fan from a curve (`Some(id)`) or release it back to the
-    /// chip's automatic control (`None`). A `SetDuty` for the fan also
+    /// chip's automatic control (`None`). A `SetTarget` for the fan also
     /// releases it.
     SetFanCurve {
         chip: usize,

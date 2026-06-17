@@ -14,8 +14,8 @@ pub(super) fn handle_command(
 ) -> bool {
     match command {
         Command::Shutdown => true,
-        Command::Request(Request::SetDuty { chip, fan, duty }) => {
-            pending.insert((chip, fan), duty);
+        Command::Request(Request::SetTarget { chip, fan, target }) => {
+            pending.insert((chip, fan), target);
             false
         }
         Command::Request(Request::Calibrate) => {
@@ -50,7 +50,7 @@ pub(super) fn handle_command(
 }
 
 /// Drives every curve-assigned fan to its curve's current output. Writes go
-/// through [`request_duty`] so per-fan settings and calibration shape curve
+/// through [`request_target`] so per-fan settings and calibration shape curve
 /// targets exactly like manual ones; unchanged final commands are skipped. A
 /// fan whose assigned curve has vanished from the config is handed back to
 /// automatic control once, so it can't sit pinned at a stale command; a curve
@@ -84,7 +84,7 @@ pub(super) fn apply_curves(
                 log_line(&format!(
                     "curve '{id}' is gone, fan ({ci},{fi}) back to auto"
                 ));
-                wrote |= request_duty(hw, ci, fi, None);
+                wrote |= request_target(hw, ci, fi, None);
             }
             clear_curve_runtime(hw, ci, fi);
             continue;
@@ -97,9 +97,9 @@ pub(super) fn apply_curves(
             continue;
         };
         let request = percent_to_duty(percent);
-        let command = command_for_request(hw, ci, fi, request);
+        let command = steady_command_for_request(hw, ci, fi, request);
         if hw.curve_written.insert((ci, fi), command) != Some(command) {
-            wrote |= request_duty(hw, ci, fi, Some(request));
+            wrote |= request_target(hw, ci, fi, Some(request));
         } else {
             hw.requested.insert((ci, fi), request);
         }
@@ -259,26 +259,79 @@ pub(super) fn fan_settings(hw: &Hardware, chip: usize, fan: usize) -> FanSetting
         .unwrap_or_default()
 }
 
-fn command_for_request(hw: &Hardware, chip: usize, fan: usize, request: u8) -> u8 {
-    let target = effective_target_percent(
-        fan_settings(hw, chip, fan),
-        fan_calibration(hw, chip, fan),
-        duty_to_percent(request),
-    );
-    command_for_target(hw, chip, fan, target)
-}
-
-fn command_for_target(hw: &Hardware, chip: usize, fan: usize, target_percent: f32) -> u8 {
-    fan_calibration(hw, chip, fan)
-        .and_then(|curve| curve.command_for_speed_percent(target_percent))
-        .unwrap_or_else(|| percent_to_duty(target_percent))
-}
-
 pub(super) fn fan_calibration(hw: &Hardware, chip: usize, fan: usize) -> Option<&FanCurve> {
     hw.curves
         .get(chip)
         .and_then(|fans| fans.get(fan))
         .and_then(Option::as_ref)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FanCommandPlan {
+    steady_command: u8,
+    boost_command: Option<u8>,
+}
+
+fn steady_command_for_request(hw: &Hardware, chip: usize, fan: usize, encoded_target: u8) -> u8 {
+    let target = effective_target_for_request(hw, chip, fan, encoded_target);
+    steady_command_for_target(
+        fan_settings(hw, chip, fan),
+        fan_calibration(hw, chip, fan),
+        target,
+    )
+}
+
+fn effective_target_for_request(hw: &Hardware, chip: usize, fan: usize, encoded_target: u8) -> f32 {
+    effective_target_percent(
+        fan_settings(hw, chip, fan),
+        fan_calibration(hw, chip, fan),
+        duty_to_percent(encoded_target),
+    )
+}
+
+fn command_plan_for_target(
+    settings: FanSettings,
+    calibration: Option<&FanCurve>,
+    target_percent: f32,
+    stopped: bool,
+) -> FanCommandPlan {
+    let steady_command = steady_command_for_target(settings, calibration, target_percent);
+    let boost_command = if stopped && steady_command > 0 {
+        start_command(settings, calibration).filter(|&command| command > steady_command)
+    } else {
+        None
+    };
+    FanCommandPlan {
+        steady_command,
+        boost_command,
+    }
+}
+
+fn steady_command_for_target(
+    settings: FanSettings,
+    calibration: Option<&FanCurve>,
+    target_percent: f32,
+) -> u8 {
+    let command = calibration
+        .and_then(|curve| curve.command_for_speed_percent(target_percent))
+        .unwrap_or_else(|| percent_to_duty(target_percent));
+    stop_command(settings, calibration)
+        .filter(|&stop| command <= stop)
+        .map_or(command, |_| 0)
+}
+
+fn start_command(settings: FanSettings, calibration: Option<&FanCurve>) -> Option<u8> {
+    settings
+        .start_percent
+        .map(percent_to_duty)
+        .or_else(|| calibration.and_then(|curve| curve.start_duty))
+}
+
+fn stop_command(settings: FanSettings, calibration: Option<&FanCurve>) -> Option<u8> {
+    settings
+        .stop_percent
+        .map(percent_to_duty)
+        .or_else(|| calibration.and_then(|curve| curve.stop_duty))
 }
 
 pub(super) fn effective_target_percent(
@@ -300,13 +353,43 @@ fn speed_percent_for_command(hw: &Hardware, chip: usize, fan: usize, command: u8
     fan_calibration(hw, chip, fan).and_then(|curve| curve.speed_percent_for_command(command))
 }
 
+fn fan_appears_stopped(hw: &Hardware, chip: usize, fan: usize, stop_command: Option<u8>) -> bool {
+    let Some(status) = hw.snapshots.get(chip).and_then(|snap| snap.fans.get(fan)) else {
+        return false;
+    };
+    if status.rpm.is_some_and(|rpm| rpm <= 1.0) {
+        return true;
+    }
+    match (status.duty, stop_command) {
+        (Some(ipc::FanDuty::Manual { percent }), Some(stop_command)) => {
+            percent <= duty_to_percent(stop_command) + 0.5
+        }
+        _ => false,
+    }
+}
+
+fn boost_speed_percent(hw: &Hardware, chip: usize, fan: usize, command: u8) -> f32 {
+    speed_percent_for_command(hw, chip, fan, command).unwrap_or_else(|| duty_to_percent(command))
+}
+
+fn write_fan_command(hw: &mut Hardware, chip: usize, fan: usize, command: u8) {
+    if let Err(error) = hw.session.set_fan(chip, fan, Some(command)) {
+        log_line(&format!("set_fan({chip},{fan}) failed: {error}"));
+    }
+}
+
 /// Applies a client target request through the fan's settings and
 /// calibration: offset/minimum shape the target speed, then the calibrated
 /// command→RPM graph is inverted to find the hardware command. Step limits
 /// turn the write into a ramp that [`tick_ramps`] advances. Returns true if a
 /// register write happened.
-pub(super) fn request_duty(hw: &mut Hardware, chip: usize, fan: usize, duty: Option<u8>) -> bool {
-    let Some(request) = duty else {
+pub(super) fn request_target(
+    hw: &mut Hardware,
+    chip: usize,
+    fan: usize,
+    encoded_target: Option<u8>,
+) -> bool {
+    let Some(encoded_target) = encoded_target else {
         // Force the chip's own SmartFan mode rather than restoring the
         // pre-manual register state: that state is whatever the session
         // started with, which may itself be a manual duty left behind by
@@ -319,19 +402,30 @@ pub(super) fn request_duty(hw: &mut Hardware, chip: usize, fan: usize, duty: Opt
         return true;
     };
 
-    hw.requested.insert((chip, fan), request);
+    hw.requested.insert((chip, fan), encoded_target);
     let settings = fan_settings(hw, chip, fan);
-    let target = effective_target_percent(
-        settings,
-        fan_calibration(hw, chip, fan),
-        duty_to_percent(request),
-    );
+    let calibration = fan_calibration(hw, chip, fan);
+    let target = effective_target_percent(settings, calibration, duty_to_percent(encoded_target));
+    let stopped = fan_appears_stopped(hw, chip, fan, stop_command(settings, calibration));
+    let plan = command_plan_for_target(settings, calibration, target, stopped);
+    if let Some(boost_command) = plan.boost_command {
+        let current = boost_speed_percent(hw, chip, fan, boost_command);
+        hw.ramps.insert(
+            (chip, fan),
+            Ramp {
+                current,
+                target,
+                last_written: Some(boost_command),
+                hold_until: Some(Instant::now() + START_BOOST_DURATION),
+            },
+        );
+        write_fan_command(hw, chip, fan, boost_command);
+        return true;
+    }
+
     if settings.step_up.is_none() && settings.step_down.is_none() {
         hw.ramps.remove(&(chip, fan));
-        let command = command_for_target(hw, chip, fan, target);
-        if let Err(error) = hw.session.set_fan(chip, fan, Some(command)) {
-            log_line(&format!("set_fan({chip},{fan}) failed: {error}"));
-        }
+        write_fan_command(hw, chip, fan, plan.steady_command);
         return true;
     }
 
@@ -358,6 +452,7 @@ pub(super) fn request_duty(hw: &mut Hardware, chip: usize, fan: usize, duty: Opt
             current,
             target,
             last_written: None,
+            hold_until: None,
         },
     );
     false
@@ -373,10 +468,15 @@ pub(super) fn tick_ramps(hw: &mut Hardware, dt: f32) -> bool {
     // preceding idle sleep; cap it so a fresh ramp can't jump ahead.
     let dt = dt.clamp(0.0, 2.0 * RAMP_TICK.as_secs_f32());
     let mut wrote = false;
+    let now = Instant::now();
     let keys: Vec<(usize, usize)> = hw.ramps.keys().copied().collect();
     for (chip, fan) in keys {
         let settings = fan_settings(hw, chip, fan);
-        let Some((current, done)) = hw.ramps.get_mut(&(chip, fan)).map(|ramp| {
+        let Some((current, done, held)) = hw.ramps.get_mut(&(chip, fan)).map(|ramp| {
+            if ramp.hold_until.is_some_and(|until| now < until) {
+                return (ramp.current, false, true);
+            }
+            ramp.hold_until = None;
             let delta = ramp.target - ramp.current;
             let rate = if delta > 0.0 {
                 settings.step_up
@@ -396,21 +496,22 @@ pub(super) fn tick_ramps(hw: &mut Hardware, dt: f32) -> bool {
                 None => ramp.target,
             };
             let done = (ramp.current - ramp.target).abs() < f32::EPSILON;
-            (ramp.current, done)
+            (ramp.current, done, false)
         }) else {
             continue;
         };
+        if held {
+            continue;
+        }
 
-        let value = command_for_target(hw, chip, fan, current);
+        let value = steady_command_for_target(settings, fan_calibration(hw, chip, fan), current);
         let Some(ramp) = hw.ramps.get_mut(&(chip, fan)) else {
             continue;
         };
         let write = ramp.last_written != Some(value);
         ramp.last_written = Some(value);
         if write {
-            if let Err(error) = hw.session.set_fan(chip, fan, Some(value)) {
-                log_line(&format!("set_fan({chip},{fan}) failed: {error}"));
-            }
+            write_fan_command(hw, chip, fan, value);
             wrote = true;
         }
         if done {
@@ -430,6 +531,15 @@ mod tests {
             degrees: 2.0,
             delay_ms: 2_000,
             only_downward: true,
+        }
+    }
+
+    fn fan_curve(stop_duty: Option<u8>, start_duty: Option<u8>) -> FanCurve {
+        FanCurve {
+            max_rpm: 2_000.0,
+            points: vec![(255, 2_000.0), (26, 200.0), (0, 0.0)],
+            stop_duty,
+            start_duty,
         }
     }
 
@@ -536,5 +646,52 @@ mod tests {
             ),
             Some(40.0)
         );
+    }
+
+    #[test]
+    fn steady_command_uses_calibrated_stop_threshold() {
+        let curve = fan_curve(Some(26), Some(64));
+
+        assert_eq!(
+            steady_command_for_target(FanSettings::default(), Some(&curve), 5.0),
+            0
+        );
+    }
+
+    #[test]
+    fn command_plan_boosts_stopped_fan_to_start_command() {
+        let curve = fan_curve(Some(0), Some(64));
+
+        assert_eq!(
+            command_plan_for_target(FanSettings::default(), Some(&curve), 5.0, true),
+            FanCommandPlan {
+                steady_command: 13,
+                boost_command: Some(64),
+            }
+        );
+    }
+
+    #[test]
+    fn command_plan_does_not_boost_running_fan() {
+        let curve = fan_curve(Some(0), Some(64));
+
+        assert_eq!(
+            command_plan_for_target(FanSettings::default(), Some(&curve), 5.0, false),
+            FanCommandPlan {
+                steady_command: 13,
+                boost_command: None,
+            }
+        );
+    }
+
+    #[test]
+    fn steady_command_uses_stop_override() {
+        let curve = fan_curve(Some(26), Some(64));
+        let settings = FanSettings {
+            stop_percent: Some(0.0),
+            ..Default::default()
+        };
+
+        assert_eq!(steady_command_for_target(settings, Some(&curve), 5.0), 13);
     }
 }

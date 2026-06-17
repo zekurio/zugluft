@@ -42,7 +42,7 @@ pub(super) enum CalEnd {
 /// Steps every controllable fan through [`CALIBRATION_DUTIES`] down to a
 /// full stop, records the stabilized RPM per step, then ramps stalled fans
 /// back up to find their restart command. Curves are persisted and the
-/// previous targets restored. Commands arriving mid-run are honored: SetDuty
+/// previous targets restored. Commands arriving mid-run are honored: SetTarget
 /// updates the restore plan, Shutdown/Redetect abort (the dropped session
 /// then restores fan control).
 #[allow(clippy::too_many_arguments)]
@@ -61,7 +61,7 @@ pub(super) fn run_calibration(
 
     // What each fan returns to afterwards: the encoded target the user last
     // requested (pre offset/minimum/calibration), falling back to the latest
-    // command readback, or whatever SetDuty requests arrive before/during the
+    // command readback, or whatever SetTarget requests arrive before/during the
     // run.
     let mut restore: HashMap<(usize, usize), Option<u8>> = HashMap::new();
     for (ci, info) in hw.chips.iter().enumerate() {
@@ -187,7 +187,7 @@ pub(super) fn run_calibration(
         }
     }
 
-    // Restore goes through request_duty so offset/minimum/calibration apply
+    // Restore goes through request_target so offset/minimum/calibration apply
     // the same way they would to a fresh client request.
     let mut manual_dirty = false;
     for (&(ci, fi), &target) in &restore {
@@ -195,7 +195,7 @@ pub(super) fn run_calibration(
             manual_store.set(&calibration::chip_key(info), fi, target);
             manual_dirty = true;
         }
-        request_duty(hw, ci, fi, target);
+        request_target(hw, ci, fi, target);
     }
     if manual_dirty {
         manual_store.save();
@@ -423,7 +423,7 @@ fn averaged_readings(
         .collect()
 }
 
-/// Sleeps for `duration` while handling queued commands: SetDuty lands in
+/// Sleeps for `duration` while handling queued commands: SetTarget lands in
 /// the restore plan instead of fighting the ladder, custom sensor updates
 /// are applied directly; Shutdown and Redetect abort the run.
 pub(super) fn wait_pumping(
@@ -442,9 +442,9 @@ pub(super) fn wait_pumping(
         match rx.recv_timeout(timeout) {
             Ok(Command::Shutdown) => return Some(CalEnd::Shutdown),
             Ok(Command::Request(Request::Redetect)) => return Some(CalEnd::Redetect),
-            Ok(Command::Request(Request::SetDuty { chip, fan, duty })) => {
+            Ok(Command::Request(Request::SetTarget { chip, fan, target })) => {
                 if restore.contains_key(&(chip, fan)) {
-                    restore.insert((chip, fan), duty);
+                    restore.insert((chip, fan), target);
                 }
             }
             Ok(Command::Request(Request::SetCustomSensors(defs))) => {

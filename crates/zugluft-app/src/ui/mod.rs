@@ -11,10 +11,10 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use gpui::{
-    BorderStyle, Bounds, BoxShadow, ClickEvent, ClipboardItem, Context, Div, ElementId,
-    FocusHandle, FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PathBuilder, Pixels, SharedString, Window, canvas, deferred, div, fill, hsla,
-    point, prelude::*, px, quad, relative, rgb, size, svg,
+    AnchoredPositionMode, BorderStyle, Bounds, BoxShadow, ClickEvent, ClipboardItem, Context,
+    Corner, Div, ElementId, FocusHandle, FontWeight, KeyDownEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, SharedString, Window, anchored, canvas,
+    deferred, div, fill, hsla, point, prelude::*, px, quad, relative, rgb, size, svg,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use zugluft_ipc::{
@@ -90,6 +90,9 @@ pub struct Zugluft {
     confirm_delete: Option<ConfirmDelete>,
     /// The dropdown popup currently open, if any.
     open_dropdown: Option<Dropdown>,
+    /// Trigger widths captured during paint, so an open dropdown's list can
+    /// match the width of the control that opened it.
+    dropdown_widths: Rc<RefCell<HashMap<Dropdown, Pixels>>>,
     /// Local copy of the curve being point-dragged; committed to
     /// config.toml on release.
     curve_edit: Option<CurveDef>,
@@ -175,6 +178,7 @@ impl Zugluft {
             custom_name_edit: None,
             confirm_delete: None,
             open_dropdown: None,
+            dropdown_widths: Rc::default(),
             curve_edit: None,
             curve_drag: None,
             curve_bounds: Rc::default(),
@@ -440,14 +444,24 @@ impl Zugluft {
 
     fn render_dropdown_overlay(&self, cx: &mut Context<Self>) -> Option<Div> {
         self.open_dropdown.is_some().then(|| {
-            div().absolute().inset_0().on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.open_dropdown = None;
-                    cx.notify();
-                }),
-            )
+            // Swallow the whole click and close on mouse-up. Closing on
+            // mouse-down would remove this overlay before the paired mouse-up,
+            // which then leaks to the modal backdrop and closes the dialog too.
+            div()
+                .absolute()
+                .inset_0()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.open_dropdown = None;
+                        cx.notify();
+                    }),
+                )
         })
     }
 

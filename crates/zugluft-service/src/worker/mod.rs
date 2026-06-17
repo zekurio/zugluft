@@ -29,6 +29,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const WRITE_REFRESH_DEBOUNCE: Duration = Duration::from_millis(100);
 /// Wake-up interval while a step-limited duty change is ramping.
 const RAMP_TICK: Duration = Duration::from_millis(250);
+/// Pulse length for a calibrated restart command before settling to the
+/// requested steady command.
+const START_BOOST_DURATION: Duration = Duration::from_secs(1);
 const DETECT_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 /// Consecutive update failures before the session is considered dead.
 const MAX_UPDATE_FAILURES: u32 = 5;
@@ -77,6 +80,7 @@ struct Ramp {
     current: f32,
     target: f32,
     last_written: Option<u8>,
+    hold_until: Option<Instant>,
 }
 
 type CurveFunctionKey = (usize, usize, usize); // chip, fan, function index
@@ -144,7 +148,7 @@ pub fn run(hub: &Arc<Hub>, rx: &Receiver<Command>) {
                         store_snapshots(&mut hw, &snaps);
                     }
                     for ((chip, fan), duty) in saved_manual {
-                        request_duty(&mut hw, chip, fan, Some(duty));
+                        request_target(&mut hw, chip, fan, Some(duty));
                     }
                     stamp_fans(&mut hw);
                     publish_ready(hub, &hw, &customs, &curve_defs);
@@ -287,7 +291,7 @@ pub fn run(hub: &Arc<Hub>, rx: &Receiver<Command>) {
             }
             // Transient failures (e.g. mutex contention with another tool)
             // resolve on the next write or poll.
-            wrote |= request_duty(hw, chip, fan, duty);
+            wrote |= request_target(hw, chip, fan, duty);
         }
         if manual_dirty {
             manual_store.save();
@@ -321,7 +325,7 @@ pub fn run(hub: &Arc<Hub>, rx: &Receiver<Command>) {
                 hw.curve_written.remove(&(chip, fan));
                 clear_curve_runtime(hw, chip, fan);
                 if released {
-                    wrote |= request_duty(hw, chip, fan, None);
+                    wrote |= request_target(hw, chip, fan, None);
                 }
             }
             curve_store.save();
@@ -346,7 +350,7 @@ pub fn run(hub: &Arc<Hub>, rx: &Receiver<Command>) {
             let requested: Vec<((usize, usize), u8)> =
                 hw.requested.iter().map(|(&k, &v)| (k, v)).collect();
             for ((chip, fan), raw) in requested {
-                wrote |= request_duty(hw, chip, fan, Some(raw));
+                wrote |= request_target(hw, chip, fan, Some(raw));
             }
             stamp_fans(hw);
             publish_ready(hub, hw, &customs, &curve_defs);

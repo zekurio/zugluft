@@ -248,6 +248,10 @@ pub struct NamesConfig {
     /// curve later.
     #[serde(default)]
     fan_curve: HashMap<String, HashMap<String, String>>,
+    /// Per-curve line color overrides (`"#rrggbb"`), keyed by curve id. This
+    /// is display-only, like `graph_color`; the service never sees it.
+    #[serde(default)]
+    curve_color: HashMap<String, String>,
 }
 
 impl NamesConfig {
@@ -352,6 +356,12 @@ impl NamesConfig {
     /// kind's default".
     pub fn graph_shown(&self, chip: &str, key: &str) -> Option<bool> {
         self.graph_shown.get(chip)?.get(key).copied()
+    }
+
+    /// User color override for a curve's line, parsed from `"#rrggbb"`.
+    pub fn curve_color(&self, id: &str) -> Option<u32> {
+        let raw = self.curve_color.get(id)?;
+        u32::from_str_radix(raw.strip_prefix('#').unwrap_or(raw), 16).ok()
     }
 
     /// Last curve selected for one fan, if the user has picked one before.

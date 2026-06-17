@@ -108,9 +108,6 @@ impl Zugluft {
             let delete_id = chip.clone();
 
             let mut popup = div()
-                .absolute()
-                .top(px(24.))
-                .right(px(0.))
                 .w(Self::ACTION_MENU_WIDTH)
                 .flex()
                 .flex_col()
@@ -232,7 +229,7 @@ impl Zugluft {
                 );
             }
 
-            deferred(popup)
+            popup_menu(point(px(20.), px(24.)), Corner::TopRight, popup)
         });
 
         div().relative().flex_none().children(menu).child(
@@ -304,7 +301,11 @@ impl Zugluft {
             .w_full()
             .flex()
             .items_center()
-            .p(px(1.))
+            // Gap + a touch more padding so an active segment's accent border
+            // is fully surrounded by the track instead of being flush against
+            // its neighbors and the container edge (which clipped it).
+            .gap_0p5()
+            .p(px(2.))
             .rounded_md()
             .border_1()
             .border_color(rgb(BORDER))

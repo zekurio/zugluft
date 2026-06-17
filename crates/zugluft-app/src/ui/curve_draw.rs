@@ -72,8 +72,12 @@ pub(super) fn draw_curve_editor(
     if bounds.size.width <= px(8.) || bounds.size.height <= px(8.) {
         return;
     }
-    let origin = bounds.origin;
-    let plot = bounds.size;
+    // Inset the plotting region inside the filled background so handles at the
+    // 0 %/100 % and temp-min/max edges sit fully inside the box. This must
+    // match the bounds stored for hit-testing in `render_curve_editor_graph`.
+    let inner = bounds.inset(px(CURVE_PLOT_INSET));
+    let origin = inner.origin;
+    let plot = inner.size;
     let curve_window = data.window.sanitized();
     let to_px = |temp: f32, percent: f32| {
         point(

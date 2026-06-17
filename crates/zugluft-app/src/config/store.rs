@@ -521,6 +521,31 @@ fn set_graph_field(section: &str, chip: &str, key: &str, value: Option<toml_edit
     });
 }
 
+/// Sets or clears a curve's line color override (`"#rrggbb"`), keyed by
+/// curve id under `[curve_color]`. Display-only, like `set_graph_color`.
+pub fn save_curve_color(id: &str, color: Option<&str>) {
+    edit_config(|doc| {
+        match color {
+            Some(color) => doc["curve_color"][id] = toml_edit::value(color),
+            None => {
+                if let Some(table) = doc
+                    .get_mut("curve_color")
+                    .and_then(|table| table.as_table_like_mut())
+                {
+                    table.remove(id);
+                }
+            }
+        }
+        let empty = doc
+            .get("curve_color")
+            .and_then(|table| table.as_table_like())
+            .is_some_and(|table| table.is_empty());
+        if empty {
+            doc.as_table_mut().remove("curve_color");
+        }
+    });
+}
+
 /// Renames a `[[curve]]` entry, matching by id.
 pub fn save_curve_name(id: &str, name: &str) {
     edit_config(|doc| {

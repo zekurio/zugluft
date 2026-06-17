@@ -25,6 +25,10 @@ pub(super) const SENSOR_COLORS: [u32; 10] = [
 ];
 /// Grab distance for curve points, in pixels.
 pub(super) const CURVE_HIT_RADIUS: f32 = 10.0;
+/// Inner margin of the curve editor plot, in pixels. Keeps point handles at
+/// the 0 %/100 % and temp-min/max edges fully visible and easy to grab
+/// instead of being clipped against the plot boundary.
+pub(super) const CURVE_PLOT_INSET: f32 = 10.0;
 
 pub(super) type FanKey = (usize, usize); // (chip index, fan index)
 
@@ -193,7 +197,7 @@ impl AppView {
 }
 
 /// Which dropdown popup is open (at most one across the app).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) enum Dropdown {
     /// Source picker in the curve edit dialog.
     CurveSource { curve: String },
@@ -646,6 +650,27 @@ pub(super) fn service_exe() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
+/// Wraps a popup (a dropdown list or an action menu) so it paints above its
+/// siblings and slides back inside the window when it would overflow an
+/// edge — so menus near the bottom open upward instead of being clipped.
+/// `anchor` is the attachment point relative to the positioned parent's
+/// top-left; `corner` is the popup corner placed at that point.
+pub(super) fn popup_menu(
+    anchor: gpui::Point<Pixels>,
+    corner: Corner,
+    child: Div,
+) -> impl IntoElement {
+    deferred(
+        anchored()
+            .position_mode(AnchoredPositionMode::Local)
+            .position(anchor)
+            .anchor(corner)
+            .snap_to_window_with_margin(px(8.))
+            .child(child),
+    )
+    .with_priority(1)
+}
+
 pub(super) fn floating_shadow() -> Vec<BoxShadow> {
     vec![BoxShadow {
         color: hsla(0.0, 0.0, 0.0, 0.28),
@@ -713,17 +738,28 @@ pub(super) fn normalize_axis_range(unit: SensorUnit, min: f32, max: f32) -> (f32
         SensorUnit::Watts => 25.0,
     };
 
+    // RPM and power can never be negative, so the axis must bottom out at 0
+    // rather than padding into meaningless negative territory.
+    let floor = match unit {
+        SensorUnit::Rpm | SensorUnit::Watts | SensorUnit::Percent => Some(0.0),
+        SensorUnit::Celsius | SensorUnit::Fahrenheit => None,
+    };
+    let clamp_low = |low: f32| match floor {
+        Some(f) => low.max(f),
+        None => low,
+    };
+
     if (max - min).abs() < step {
         let center = (min + max) / 2.0;
         return (
-            ((center - step * 2.0) / step).floor() * step,
+            clamp_low(((center - step * 2.0) / step).floor() * step),
             ((center + step * 2.0) / step).ceil() * step,
         );
     }
 
     let padding = ((max - min) * 0.12).max(step);
     (
-        ((min - padding) / step).floor() * step,
+        clamp_low(((min - padding) / step).floor() * step),
         ((max + padding) / step).ceil() * step,
     )
 }

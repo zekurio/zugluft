@@ -7225,6 +7225,7 @@ dependencies = [
 name = "zugluft-cli"
 version = "0.2.1"
 dependencies = [
+ "embed-resource",
  "zugluft-hw",
  "zugluft-ipc",
 ]

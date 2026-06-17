@@ -11,7 +11,7 @@ impl Zugluft {
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
-        let color = SENSOR_COLORS[index % SENSOR_COLORS.len()];
+        let color = self.curve_color(&def.id, index);
         let input = def.source.resolve(chips, snapshots, customs);
         let output = input.and_then(|input| def.kind.evaluate(input));
         let data = CurveEditorData {
@@ -25,6 +25,9 @@ impl Zugluft {
         let y_axis = div()
             .w(px(58.))
             .h_full()
+            // Match the plot's inset so the 0 %/100 % labels line up with the
+            // gridlines instead of the box edges.
+            .py(px(CURVE_PLOT_INSET))
             .flex()
             .flex_col()
             .justify_between()
@@ -43,8 +46,12 @@ impl Zugluft {
                 return None;
             };
             let &(temp, percent) = points.get(index)?;
-            let x = f32::from(bounds.size.width) * curve_window.temp_fraction(temp);
-            let y = f32::from(bounds.size.height) * (1.0 - curve_window.duty_fraction(percent));
+            // `bounds` is the inset plot region; the readout is positioned in
+            // the full canvas area, so offset by the inset to follow the point.
+            let x =
+                CURVE_PLOT_INSET + f32::from(bounds.size.width) * curve_window.temp_fraction(temp);
+            let y = CURVE_PLOT_INSET
+                + f32::from(bounds.size.height) * (1.0 - curve_window.duty_fraction(percent));
             const W: f32 = 92.0;
             let left = (x - W / 2.0).clamp(0.0, (f32::from(bounds.size.width) - W).max(0.0));
             let top = if y - 30.0 < 0.0 { y + 16.0 } else { y - 30.0 };
@@ -113,7 +120,10 @@ impl Zugluft {
                             .child(
                                 canvas(
                                     move |bounds, _, _| {
-                                        *curve_bounds.borrow_mut() = Some(bounds);
+                                        // Hit-testing uses the same inset plot
+                                        // region the editor draws into.
+                                        *curve_bounds.borrow_mut() =
+                                            Some(bounds.inset(px(CURVE_PLOT_INSET)));
                                     },
                                     move |bounds, _, window, _| {
                                         draw_curve_editor(bounds, &data, window);
@@ -133,6 +143,9 @@ impl Zugluft {
                     .child(
                         div()
                             .flex_1()
+                            // Match the plot's horizontal inset so the temp
+                            // labels line up with the gridlines.
+                            .px(px(CURVE_PLOT_INSET))
                             .flex()
                             .justify_between()
                             .children((0..=10).map(|i| {

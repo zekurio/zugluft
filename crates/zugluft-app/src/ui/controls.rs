@@ -112,8 +112,13 @@ impl Zugluft {
     ) -> Div {
         let open = self.open_dropdown.as_ref() == Some(&dropdown);
         let toggle = dropdown.clone();
+        // The trigger reports its width every frame so the open list can match
+        // it; keyed by dropdown so the value survives across opens.
+        let widths = self.dropdown_widths.clone();
+        let measure_dropdown = dropdown.clone();
         let trigger = div()
             .id(id)
+            .relative()
             .flex()
             .items_center()
             .gap_1()
@@ -137,58 +142,82 @@ impl Zugluft {
                 cx.notify();
             }))
             .child(div().flex_1().truncate().child(current))
-            .child(div().text_color(rgb(TEXT_DIM)).child("▾"));
+            .child(div().text_color(rgb(TEXT_DIM)).child("▾"))
+            .child(
+                canvas(
+                    move |bounds, _, _| {
+                        widths
+                            .borrow_mut()
+                            .insert(measure_dropdown, bounds.size.width);
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            );
 
-        let mut wrap = div().relative().w_full().child(trigger);
+        let mut wrap = div().relative().w_full();
         if open {
-            wrap = wrap.child(deferred(
-                div()
-                    .absolute()
-                    .top(height + px(4.))
-                    .left_0()
-                    .right_0()
-                    .flex()
-                    .flex_col()
-                    .p_1()
-                    .rounded_md()
-                    .bg(rgb(PANEL))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .shadow(floating_shadow())
-                    // Mouse downs inside the popup must not reach the
-                    // click-away overlay, or the popup vanishes before the
-                    // option's click completes on mouse up.
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+            let width = self
+                .dropdown_widths
+                .borrow()
+                .get(&dropdown)
+                .copied()
+                .unwrap_or(px(180.));
+            let popup = div()
+                .w(width)
+                .flex()
+                .flex_col()
+                .p_1()
+                .rounded_md()
+                .bg(rgb(PANEL))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .shadow(floating_shadow())
+                // Mouse downs inside the popup must not reach the click-away
+                // overlay, or the popup vanishes before the option's click
+                // completes on mouse up.
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|_, _: &MouseDownEvent, _, cx| cx.stop_propagation()),
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|_, _: &MouseUpEvent, _, cx| cx.stop_propagation()),
+                )
+                .children(options.into_iter().enumerate().map(|(i, (label, action))| {
+                    div().child(
+                        div()
+                            .id(("dropdown-option", i))
+                            .px_1p5()
+                            .py_1()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(rgb(TEXT))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(FILL_HOVER)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.open_dropdown = None;
+                                action(this, cx);
+                                cx.notify();
+                            }))
+                            .child(label),
                     )
-                    .on_mouse_up(
-                        MouseButton::Left,
-                        cx.listener(|_, _: &MouseUpEvent, _, cx| cx.stop_propagation()),
-                    )
-                    .children(options.into_iter().enumerate().map(|(i, (label, action))| {
-                        div().child(
-                            div()
-                                .id(("dropdown-option", i))
-                                .px_1p5()
-                                .py_1()
-                                .rounded_sm()
-                                .text_xs()
-                                .text_color(rgb(TEXT))
-                                .cursor_pointer()
-                                .hover(|s| s.bg(rgb(FILL_HOVER)))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    cx.stop_propagation();
-                                    this.open_dropdown = None;
-                                    action(this, cx);
-                                    cx.notify();
-                                }))
-                                .child(label),
-                        )
-                    })),
+                }));
+            // The popup is added before the trigger so its in-flow (static)
+            // position sits at the top of `wrap`, matching the trigger's
+            // origin. `AnchoredPositionMode::Local` adds the anchor offset to
+            // that origin; if the popup followed the trigger its static
+            // position would already be a row down and the list would render
+            // doubly offset (below the trigger's neighbour, not under it).
+            wrap = wrap.child(popup_menu(
+                point(px(0.), height + px(4.)),
+                Corner::TopLeft,
+                popup,
             ));
         }
-        wrap
+        wrap.child(trigger)
     }
 
     /// Display name of a curve's temperature source.
@@ -459,86 +488,48 @@ impl Zugluft {
         )
     }
 
-    fn visibility_toggle(
+    /// A single eye visibility toggle used throughout the Settings tree.
+    /// `hidden` flips the icon and dims it. When `enabled` is false the
+    /// button is inert and always reads as hidden — used for rows that a
+    /// parent group already hides, so the whole subtree visibly toggles
+    /// off together.
+    pub(super) fn eye_toggle(
         &self,
         id: (&'static str, usize),
-        label: String,
         hidden: bool,
+        enabled: bool,
         cx: &mut Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> Div {
-        div().child(
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .gap_1p5()
-                .px_2()
-                .py_0p5()
-                .rounded_md()
-                .bg(rgb(if hidden { PANEL } else { TRACK }))
-                .border_1()
-                .border_color(rgb(BORDER))
-                .text_xs()
-                .text_color(rgb(if hidden { TEXT_DIM } else { TEXT }))
+        let off = hidden || !enabled;
+        let color = if off { TEXT_DIM } else { TEXT };
+        let mut button = div()
+            .id(id)
+            .flex()
+            .items_center()
+            .justify_center()
+            .w(px(26.))
+            .h(px(22.))
+            .flex_none()
+            .rounded_md()
+            .child(
+                svg()
+                    .path(if off {
+                        "icons/eye-off.svg"
+                    } else {
+                        "icons/eye.svg"
+                    })
+                    .w(px(14.))
+                    .h(px(14.))
+                    .flex_none()
+                    .text_color(rgb(color)),
+            );
+        if enabled {
+            button = button
                 .cursor_pointer()
                 .hover(|s| s.bg(rgb(FILL_HOVER)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
-                .child(
-                    svg()
-                        .path(if hidden {
-                            "icons/eye-off.svg"
-                        } else {
-                            "icons/eye.svg"
-                        })
-                        .w(px(12.))
-                        .h(px(12.))
-                        .flex_none()
-                        .text_color(rgb(if hidden { TEXT_DIM } else { TEXT })),
-                )
-                .child(label),
-        )
-    }
-
-    /// One visibility toggle in Settings: the channel with an eye state;
-    /// clicking flips hidden. Hidden channels render dimmed.
-    pub(super) fn visibility_tag(
-        &self,
-        id: (&'static str, usize),
-        chip_name: String,
-        key: String,
-        label: String,
-        hidden: bool,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        self.visibility_toggle(id, label, hidden, cx, move |this, cx| {
-            this.set_channel_hidden(&chip_name, &key, !hidden, cx);
-        })
-    }
-
-    pub(super) fn visibility_device_tag(
-        &self,
-        id: (&'static str, usize),
-        chip_name: String,
-        hidden: bool,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        self.visibility_toggle(id, "Device".to_string(), hidden, cx, move |this, cx| {
-            this.set_device_hidden(&chip_name, !hidden, cx);
-        })
-    }
-
-    pub(super) fn visibility_category_tag(
-        &self,
-        id: (&'static str, usize),
-        chip_name: String,
-        category: HiddenCategory,
-        label: &'static str,
-        hidden: bool,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        self.visibility_toggle(id, label.to_string(), hidden, cx, move |this, cx| {
-            this.set_category_hidden(&chip_name, category, !hidden, cx);
-        })
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)));
+        }
+        div().flex_none().child(button)
     }
 }

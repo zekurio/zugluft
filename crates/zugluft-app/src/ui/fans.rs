@@ -1,11 +1,11 @@
 use super::*;
 
 impl Zugluft {
-    pub(super) fn send_duty(&self, key: FanKey, duty: Option<u8>) {
-        let _ = self.tx.send(Request::SetDuty {
+    pub(super) fn send_target(&self, key: FanKey, target: Option<u8>) {
+        let _ = self.tx.send(Request::SetTarget {
             chip: key.0,
             fan: key.1,
-            duty,
+            target,
         });
     }
 
@@ -32,7 +32,7 @@ impl Zugluft {
         // same); reflect that immediately.
         self.remember_current_curve(key);
         self.pending_assign.insert(key, None);
-        self.send_duty(key, Some((percent * 255.0 / 100.0).round() as u8));
+        self.send_target(key, Some((percent * 255.0 / 100.0).round() as u8));
         cx.notify();
     }
 
@@ -83,7 +83,7 @@ impl Zugluft {
         self.remember_current_curve(key);
         self.pending.remove(&key);
         self.pending_assign.insert(key, None);
-        self.send_duty(key, None);
+        self.send_target(key, None);
         cx.notify();
     }
 

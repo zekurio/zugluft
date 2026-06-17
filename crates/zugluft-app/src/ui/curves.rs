@@ -82,6 +82,24 @@ impl Zugluft {
         self.reload_config(cx);
     }
 
+    /// The display color for a curve: the user's override, else the palette
+    /// slot for its position.
+    pub(super) fn curve_color(&self, id: &str, index: usize) -> u32 {
+        self.names
+            .curve_color(id)
+            .unwrap_or(SENSOR_COLORS[index % SENSOR_COLORS.len()])
+    }
+
+    pub(super) fn set_curve_color(&mut self, id: &str, color: u32, cx: &mut Context<Self>) {
+        config::save_curve_color(id, Some(&format!("#{color:06x}")));
+        self.reload_config(cx);
+    }
+
+    pub(super) fn reset_curve_color(&mut self, id: &str, cx: &mut Context<Self>) {
+        config::save_curve_color(id, None);
+        self.reload_config(cx);
+    }
+
     pub(super) fn set_curve_primary_function(
         &mut self,
         id: &str,
@@ -410,6 +428,7 @@ impl Zugluft {
         self.curve_drag = None;
         self.open_dropdown = None;
         config::delete_curve(id);
+        config::save_curve_color(id, None);
         self.reload_config(cx);
     }
 
@@ -598,7 +617,9 @@ impl Zugluft {
             window.temp_at(((position.x - bounds.origin.x) / bounds.size.width).clamp(0.0, 1.0));
         let target = window
             .duty_at((1.0 - (position.y - bounds.origin.y) / bounds.size.height).clamp(0.0, 1.0));
-        Some((temp, target))
+        // Snap to whole °C / % so points land on clean values and reach the
+        // window edges exactly (the readout shows whole numbers too).
+        Some((temp.round(), target.round()))
     }
 
     /// Mouse down on the dialog's curve plot: grab a point (double-click

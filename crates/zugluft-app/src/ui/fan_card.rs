@@ -182,7 +182,7 @@ impl Zugluft {
                 .find(|def| def.id == assigned)
                 .map(|def| def.name.clone())
                 .unwrap_or_else(|| assigned.clone());
-            let mut options: Vec<(String, DropdownAction)> = self
+            let options: Vec<(String, DropdownAction)> = self
                 .names
                 .curves()
                 .iter()
@@ -195,12 +195,6 @@ impl Zugluft {
                     (def.name.clone(), action)
                 })
                 .collect();
-            options.push((
-                "None (UEFI/Firmware)".to_string(),
-                Rc::new(move |this: &mut Self, cx: &mut Context<Self>| {
-                    this.assign_fan(key, None, cx);
-                }),
-            ));
             self.render_dropdown(
                 ("fan-curve", fan_id),
                 Dropdown::FanCurve { fan: key },
@@ -309,11 +303,10 @@ impl Zugluft {
             let edit_label = label.clone();
             let hide_chip = chip.clone();
 
-            deferred(
+            popup_menu(
+                point(px(20.), px(24.)),
+                Corner::TopRight,
                 div()
-                    .absolute()
-                    .top(px(24.))
-                    .right(px(0.))
                     .w(Self::ACTION_MENU_WIDTH)
                     .flex()
                     .flex_col()

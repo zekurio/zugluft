@@ -12,7 +12,7 @@ impl Zugluft {
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
-        let color = SENSOR_COLORS[index % SENSOR_COLORS.len()];
+        let color = self.curve_color(&def.id, index);
         let input = def.source.resolve(chips, snapshots, customs);
         let output = input.and_then(|input| def.kind.evaluate(input));
 
@@ -106,11 +106,10 @@ impl Zugluft {
             let edit_id = curve_id.clone();
             let delete_id = curve_id.clone();
 
-            deferred(
+            popup_menu(
+                point(px(20.), px(24.)),
+                Corner::TopRight,
                 div()
-                    .absolute()
-                    .top(px(24.))
-                    .right(px(0.))
                     .w(Self::ACTION_MENU_WIDTH)
                     .flex()
                     .flex_col()
@@ -200,6 +199,60 @@ impl Zugluft {
         )
     }
 
+    /// Color picker for a curve's line, embedded in the edit dialog. Each
+    /// swatch applies (and persists) immediately; the current override is
+    /// highlighted, with a reset back to the palette default.
+    pub(super) fn render_curve_color_field(
+        &self,
+        def: &CurveDef,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let selected = self.curve_color(&def.id, index);
+        let swatches = SENSOR_COLORS.iter().enumerate().map(|(i, &color)| {
+            let id = def.id.clone();
+            div()
+                .id(("curve-color", index * 32 + i))
+                .p(px(2.))
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(if selected == color { TEXT } else { PANEL }))
+                .cursor_pointer()
+                .hover(|s| s.border_color(rgb(TEXT_DIM)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.set_curve_color(&id, color, cx);
+                }))
+                .child(div().w(px(20.)).h(px(20.)).rounded(px(3.)).bg(rgb(color)))
+        });
+
+        let reset_id = def.id.clone();
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .child(div().text_xs().text_color(rgb(TEXT_DIM)).child("Color"))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .id(("curve-color-reset", index))
+                            .text_xs()
+                            .text_color(rgb(TEXT_DIM))
+                            .cursor_pointer()
+                            .hover(|s| s.text_color(rgb(TEXT)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.reset_curve_color(&reset_id, cx);
+                            }))
+                            .child("Reset"),
+                    ),
+            )
+            .child(div().flex().flex_wrap().gap_1().children(swatches))
+    }
+
     /// The modal curve editor for name, source, and curve parameters.
     pub(super) fn render_curve_dialog(
         &self,
@@ -275,6 +328,7 @@ impl Zugluft {
                             .overflow_y_scroll()
                             .child(name_field)
                             .child(source_field)
+                            .child(self.render_curve_color_field(&def, index, cx))
                             .child(self.render_curve_side_panel(&def, index, cx)),
                     )
             } else {
@@ -295,6 +349,7 @@ impl Zugluft {
                             .gap_2()
                             .child(source_field.flex_1().min_w(px(0.))),
                     )
+                    .child(self.render_curve_color_field(&def, index, cx))
                     .child(self.render_curve_side_panel(&def, index, cx))
             };
 
