@@ -542,10 +542,10 @@ impl Zugluft {
         cx: &mut Context<Self>,
     ) -> Div {
         let page = match self.active_view {
-            AppView::Dashboard => self.render_controls(chips, snapshots, notes, customs, cx),
+            AppView::Dashboard => self.render_controls(chips, snapshots, customs, cx),
             AppView::Fans => self.render_fans_page(chips, snapshots, cx),
             AppView::Telemetry => self.render_sensors(chips, snapshots, customs, cx),
-            AppView::Settings => self.render_settings(chips, snapshots, cx),
+            AppView::Settings => self.render_settings(chips, snapshots, notes, cx),
         };
 
         div()

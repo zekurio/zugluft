@@ -21,6 +21,7 @@ impl Zugluft {
         &self,
         chips: &[ChipInfo],
         snapshots: &[ChipSnapshot],
+        notes: &[String],
         cx: &mut Context<Self>,
     ) -> Div {
         let section_title = |title: &'static str| {
@@ -113,6 +114,51 @@ impl Zugluft {
                         },
                     )),
             );
+
+        let diagnostics = (!notes.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(section_title("Diagnostics"))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .bg(rgb(PANEL))
+                        .overflow_hidden()
+                        .children(notes.iter().enumerate().map(|(index, note)| {
+                            let mut row = div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .px_3()
+                                .py_2()
+                                .child(
+                                    div()
+                                        .w(px(7.))
+                                        .h(px(7.))
+                                        .flex_none()
+                                        .rounded_full()
+                                        .bg(rgb(ACCENT_WARN)),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_sm()
+                                        .text_color(rgb(TEXT))
+                                        .child(note.clone()),
+                                );
+                            if index > 0 {
+                                row = row.border_t_1().border_color(rgb(BORDER));
+                            }
+                            row
+                        })),
+                )
+        });
 
         // Visibility: a device → category → channel tree. Every channel is
         // listed (active or not) with a status dot so it's clear which
@@ -264,6 +310,7 @@ impl Zugluft {
                 .p_3()
                 .child(units)
                 .child(hardware)
+                .children(diagnostics)
                 .child(visibility),
         )
     }

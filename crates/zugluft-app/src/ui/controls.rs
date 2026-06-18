@@ -35,7 +35,6 @@ impl Zugluft {
         &self,
         chips: &[ChipInfo],
         snapshots: &[ChipSnapshot],
-        notes: &[String],
         customs: &[CustomSensorValue],
         cx: &mut Context<Self>,
     ) -> Div {
@@ -71,19 +70,7 @@ impl Zugluft {
                 } else {
                     div().flex().flex_col().gap_4().children(sections)
                 })
-                .child(self.render_curve_fab(cx))
-                .children((!notes.is_empty()).then(|| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .children(notes.iter().map(|note| {
-                            div()
-                                .text_xs()
-                                .text_color(rgb(TEXT_DIM))
-                                .child(format!("· {}", note))
-                        }))
-                })),
+                .child(self.render_curve_fab(cx)),
         )
     }
 
