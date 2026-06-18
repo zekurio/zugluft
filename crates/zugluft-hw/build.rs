@@ -16,6 +16,7 @@ fn main() {
     );
     println!("cargo:rerun-if-env-changed=ZUGLUFT_SKIP_LHM_BRIDGE_BUILD");
     println!("cargo:rerun-if-env-changed=ZUGLUFT_REQUIRE_LHM_BRIDGE");
+    println!("cargo:rerun-if-env-changed=ZUGLUFT_LHM_BRIDGE_PROFILE");
     println!("cargo:rerun-if-env-changed=NUGET_PACKAGES");
 
     if env::var_os("ZUGLUFT_SKIP_LHM_BRIDGE_BUILD").is_some() {
@@ -35,7 +36,9 @@ fn main() {
         .parent()
         .and_then(Path::parent)
         .expect("crate lives under workspace/crates");
-    let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    let profile = env::var("ZUGLUFT_LHM_BRIDGE_PROFILE")
+        .or_else(|_| env::var("PROFILE"))
+        .unwrap_or_else(|_| "debug".to_string());
     let bridge_target_dir = workspace.join("target").join("lhm-bridge").join(profile);
     let publish_dir = bridge_target_dir.join("publish");
     let intermediate_dir = bridge_target_dir.join("obj");
@@ -63,8 +66,15 @@ fn main() {
 
     match command.output() {
         Ok(output) if output.status.success() => {
-            let dll = publish_dir.join(bridge_dll_name());
-            println!("cargo:rustc-env=ZUGLUFT_BUILT_LHM_BRIDGE={}", dll.display());
+            if let Some(dll) = find_bridge_dll(&publish_dir) {
+                println!("cargo:rustc-env=ZUGLUFT_BUILT_LHM_BRIDGE={}", dll.display());
+            } else {
+                warn_output(
+                    ".NET publish completed without producing the LibreHardwareMonitor bridge",
+                    &output,
+                );
+                require_or_continue();
+            }
         }
         Ok(output) => {
             warn_output(
@@ -78,6 +88,15 @@ fn main() {
             require_or_continue();
         }
     }
+}
+
+fn find_bridge_dll(publish_dir: &Path) -> Option<PathBuf> {
+    [
+        publish_dir.join("native").join(bridge_dll_name()),
+        publish_dir.join(bridge_dll_name()),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
 }
 
 fn has_dotnet_sdk() -> bool {

@@ -84,9 +84,53 @@ $InstallerName = "zugluft-setup-v$Version-windows-x64.exe"
 $InstallerPath = Join-Path $DistRoot $InstallerName
 $ReleaseDir = Join-Path $Root "target\$Profile"
 $ReleaseBuildDir = Join-Path $ReleaseDir "build"
+$BridgeProject = Join-Path $Root "crates\zugluft-hw\lhm-bridge\zugluft-lhm-bridge.csproj"
+$BridgeTargetDir = Join-Path $Root "target\lhm-bridge\$Profile"
 $BridgePublishDir = Join-Path $Root "target\lhm-bridge\$Profile\publish"
+$BridgeIntermediateDir = Join-Path $BridgeTargetDir "obj"
 $NsisScript = Join-Path $Root "installer\zugluft.nsi"
 $IconPath = Join-Path $Root "crates\zugluft-app\assets\app-icon.ico"
+
+function Find-LhmBridgeDll {
+    foreach ($candidate in @(
+        (Join-Path (Join-Path $BridgePublishDir "native") "zugluft-lhm-bridge.dll"),
+        (Join-Path $BridgePublishDir "zugluft-lhm-bridge.dll")
+    )) {
+        $bridge = Get-Item -LiteralPath $candidate -ErrorAction SilentlyContinue
+        if ($bridge) {
+            return $bridge
+        }
+    }
+
+    Get-ChildItem -Path $ReleaseBuildDir -Recurse -Filter "zugluft-lhm-bridge.dll" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+}
+
+function Publish-LhmBridge {
+    $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+    if (-not $dotnet) {
+        throw ".NET SDK is required to publish the LibreHardwareMonitor bridge"
+    }
+
+    if (-not $env:NUGET_PACKAGES) {
+        $env:NUGET_PACKAGES = Join-Path $BridgeTargetDir "nuget"
+    }
+
+    Write-Host "Publishing LibreHardwareMonitor bridge..."
+    Invoke-Native $dotnet.Source `
+        "publish" `
+        $BridgeProject `
+        "-c" `
+        "Release" `
+        "-r" `
+        "win-x64" `
+        "-o" `
+        $BridgePublishDir `
+        "/p:NativeLib=Shared" `
+        "/p:OutputPath=$BridgePublishDir/" `
+        "/p:BaseIntermediateOutputPath=$BridgeIntermediateDir/"
+}
 
 Set-Location $Root
 
@@ -97,6 +141,7 @@ New-Item -ItemType Directory -Force -Path $DistRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
 
 $env:ZUGLUFT_REQUIRE_LHM_BRIDGE = "1"
+$env:ZUGLUFT_LHM_BRIDGE_PROFILE = $Profile
 $cargoArgs = @("build", "--locked", "--profile", $Profile)
 if ($CargoTimings) {
     $cargoArgs += "--timings"
@@ -111,11 +156,10 @@ foreach ($file in @("zugluft.exe", "zugluft-service.exe", "zugluftctl.exe")) {
     Copy-Item -LiteralPath $source -Destination $PayloadDir
 }
 
-$bridge = Get-Item -LiteralPath (Join-Path $BridgePublishDir "zugluft-lhm-bridge.dll") -ErrorAction SilentlyContinue
+$bridge = Find-LhmBridgeDll
 if (-not $bridge) {
-    $bridge = Get-ChildItem -Path $ReleaseBuildDir -Recurse -Filter "zugluft-lhm-bridge.dll" -File |
-        Sort-Object LastWriteTimeUtc -Descending |
-        Select-Object -First 1
+    Publish-LhmBridge
+    $bridge = Find-LhmBridgeDll
 }
 if (-not $bridge) {
     throw "zugluft-lhm-bridge.dll was not built; check the .NET SDK/NativeAOT output"
