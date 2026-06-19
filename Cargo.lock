@@ -7208,7 +7208,7 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 
 [[package]]
 name = "zugluft-app"
-version = "0.2.1"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "embed-resource",
@@ -7223,7 +7223,7 @@ dependencies = [
 
 [[package]]
 name = "zugluft-cli"
-version = "0.2.1"
+version = "0.1.0"
 dependencies = [
  "embed-resource",
  "zugluft-hw",
@@ -7232,7 +7232,7 @@ dependencies = [
 
 [[package]]
 name = "zugluft-hw"
-version = "0.2.1"
+version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
@@ -7240,7 +7240,7 @@ dependencies = [
 
 [[package]]
 name = "zugluft-ipc"
-version = "0.2.1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7249,7 +7249,7 @@ dependencies = [
 
 [[package]]
 name = "zugluft-service"
-version = "0.2.1"
+version = "0.1.0"
 dependencies = [
  "embed-resource",
  "serde",
