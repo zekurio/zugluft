@@ -347,7 +347,7 @@ jobs:
               `## ${channelName} Windows Release`,
               "",
               "Download the Windows x64 installer from the assets below.",
-              "The installer copies the GUI, CLI, service and LibreHardwareMonitor bridge DLL to `C:\\\\Program Files\\\\zugluft`, runs the PawnIO driver installer when PawnIO is missing, then registers and starts the `zugluft` Windows service.",
+              "The installer copies the GUI, CLI, service and LibreHardwareMonitor bridge DLL to `C:\\\\Program Files\\\\zugluft`, adds that directory to the system `PATH`, runs the PawnIO driver installer when PawnIO is missing, then registers and starts the `zugluft` Windows service.",
               "",
               "## Installed Components",
               "",

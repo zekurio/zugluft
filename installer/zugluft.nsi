@@ -4,6 +4,7 @@ RequestExecutionLevel admin
 
 !include LogicLib.nsh
 !include MUI2.nsh
+!include WinMessages.nsh
 !include x64.nsh
 
 !ifndef VERSION
@@ -110,6 +111,20 @@ Function InstallPawnIO
   ${EndIf}
 FunctionEnd
 
+Function AddInstallDirToPath
+  DetailPrint "Adding zugluft to the system PATH..."
+  System::Call 'Kernel32::SetEnvironmentVariable(t "ZUGLUFT_INSTALL_DIR", t "$INSTDIR")i'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$$dir = ($$env:ZUGLUFT_INSTALL_DIR).TrimEnd('\'); $$path = [Environment]::GetEnvironmentVariable('Path', 'Machine'); $$parts = @($$path -split ';' | Where-Object { $$_ }); if (($$parts | ForEach-Object { $$_.TrimEnd('\') }) -notcontains $$dir) { [Environment]::SetEnvironmentVariable('Path', (($$parts + $$env:ZUGLUFT_INSTALL_DIR) -join ';'), 'Machine') }"'
+  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+FunctionEnd
+
+Function un.RemoveInstallDirFromPath
+  DetailPrint "Removing zugluft from the system PATH..."
+  System::Call 'Kernel32::SetEnvironmentVariable(t "ZUGLUFT_INSTALL_DIR", t "$INSTDIR")i'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$$dir = ($$env:ZUGLUFT_INSTALL_DIR).TrimEnd('\'); $$path = [Environment]::GetEnvironmentVariable('Path', 'Machine'); $$parts = @($$path -split ';' | Where-Object { $$_ -and $$_.TrimEnd('\') -ine $$dir }); [Environment]::SetEnvironmentVariable('Path', ($$parts -join ';'), 'Machine')"'
+  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+FunctionEnd
+
 Section "zugluft" SEC_MAIN
   SectionIn RO
   SetShellVarContext all
@@ -131,6 +146,8 @@ Section "zugluft" SEC_MAIN
   CreateShortcut "$SMPROGRAMS\zugluft\zugluft.lnk" "$INSTDIR\zugluft.exe"
   CreateShortcut "$SMPROGRAMS\zugluft\zugluftctl.lnk" "$INSTDIR\zugluftctl.exe"
   CreateShortcut "$SMPROGRAMS\zugluft\Uninstall zugluft.lnk" "$INSTDIR\uninstall.exe"
+
+  Call AddInstallDirToPath
 
   WriteRegStr HKLM "${PRODUCT_UNINSTALL_KEY}" "DisplayName" "zugluft ${VERSION}"
   WriteRegStr HKLM "${PRODUCT_UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
@@ -171,6 +188,8 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\zugluft\zugluftctl.lnk"
   Delete "$SMPROGRAMS\zugluft\Uninstall zugluft.lnk"
   RMDir "$SMPROGRAMS\zugluft"
+
+  Call un.RemoveInstallDirFromPath
 
   Delete "$INSTDIR\zugluft.exe"
   Delete "$INSTDIR\zugluftctl.exe"

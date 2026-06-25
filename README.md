@@ -20,18 +20,21 @@ duties at once can fight over the same hardware.
 
 ## Install
 
-Download `zugluft-setup-v0.1.0-windows-x64.exe` from the `v0.1.0` release and
-run it.
+Download the latest `zugluft-setup-*-windows-x64.exe` from the latest release
+and run it.
 
 The installer asks for UAC elevation, copies the GUI, CLI, service and
 LibreHardwareMonitor bridge DLL to `C:\Program Files\zugluft`, runs the PawnIO
 driver installer when PawnIO is not already present, then registers and starts
-the Windows service.
+the Windows service. It also adds the install directory to the system `PATH`
+so `zugluftctl` is available from new terminals.
 
-After that, launch the app from the install directory:
+After that, launch the app from the install directory or run the CLI from a new
+terminal:
 
 ```powershell
 C:\Program Files\zugluft\zugluft.exe
+zugluftctl status
 ```
 
 The service registration stores the current path to `zugluft-service.exe`. If
